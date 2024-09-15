@@ -49,6 +49,11 @@ typedef struct TableGenStringRef {
   size_t len;
 } TableGenStringRef;
 
+typedef struct TableGenFilePos {
+    TableGenStringRef filepath;
+    unsigned pos;
+} TableGenFilePos;
+
 typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
 
 TableGenParserRef tableGenGet();
@@ -170,6 +175,7 @@ TableGenBool tableGenPrintError(TableGenParserRef ref, TableGenSourceLocationRef
                         TableGenStringCallback callback, void *userData);
 TableGenSourceLocationRef tableGenSourceLocationNull();
 TableGenSourceLocationRef tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
+TableGenBool tableGenConvertLoc(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenFilePosRef file_pos_ref);
 
 // Memory
 void tableGenSourceLocationFree(TableGenSourceLocationRef loc_ref);

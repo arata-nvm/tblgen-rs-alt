@@ -96,4 +96,6 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMap::const_iterator,
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<SMLoc>, TableGenSourceLocationRef);
 
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenFilePos, TableGenFilePosRef);
+
 #endif

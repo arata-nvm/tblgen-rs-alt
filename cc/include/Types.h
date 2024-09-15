@@ -35,6 +35,8 @@ typedef struct TableGenDagPair *TableGenDagPairRef;
 
 typedef struct TableGenSourceLocation *TableGenSourceLocationRef;
 
+typedef struct TableGenFilePos *TableGenFilePosRef;
+
 #ifdef __cplusplus
 }
 #endif

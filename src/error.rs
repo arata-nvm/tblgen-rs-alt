@@ -110,7 +110,7 @@ pub enum TableGenError {
 /// A location in a TableGen source file.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SourceLocation {
-    raw: TableGenSourceLocationRef,
+    pub(crate) raw: TableGenSourceLocationRef,
 }
 
 // SourceLocation is a read-only llvm::ArrayRef, which should be thread-safe.
