@@ -1,6 +1,6 @@
 [package]
 name = "tblgen-alt"
-version = "0.3.6"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["Daan Vanoverloop"]
@@ -12,10 +12,11 @@ documentation = "https://danacus.gitlab.io/tblgen-rs/tblgen/"
 exclude = ["doc/"]
 
 [features]
-default = ["llvm18-0"]
+default = ["llvm19-0"]
 llvm16-0 = []
 llvm17-0 = []
 llvm18-0 = []
+llvm19-0 = []
 
 [dependencies]
 thiserror = "1.0.61"
