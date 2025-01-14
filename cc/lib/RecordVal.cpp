@@ -71,3 +71,7 @@ void tableGenRecordValDump(TableGenRecordValRef rv_ref) {
 TableGenSourceLocationRef tableGenRecordValGetLoc(TableGenRecordValRef rv_ref) {
   return wrap(new ArrayRef(unwrap(rv_ref)->getLoc()));
 }
+
+TableGenBool tableGenRecordValIsTemplateArg(TableGenRecordValRef rv_ref) {
+    return unwrap(rv_ref)->isTemplateArg();
+}

@@ -131,6 +131,7 @@ void tableGenRecordValPrint(TableGenRecordValRef rv_ref,
                             TableGenStringCallback callback, void *userData);
 void tableGenRecordValDump(TableGenRecordValRef rv_ref);
 TableGenSourceLocationRef tableGenRecordValGetLoc(TableGenRecordValRef rv_ref);
+TableGenBool tableGenRecordValIsTemplateArg(TableGenRecordValRef rv_ref);
 
 char *tableGenRecordValGetValAsNewString(TableGenRecordValRef rv_ref);
 TableGenBool tableGenRecordValGetValAsBit(TableGenRecordValRef rv_ref,

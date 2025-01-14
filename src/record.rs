@@ -16,8 +16,8 @@ use crate::raw::{
     tableGenRecordGetFirstValue, tableGenRecordGetLoc, tableGenRecordGetName,
     tableGenRecordGetValue, tableGenRecordIsAnonymous, tableGenRecordIsSubclassOf,
     tableGenRecordPrint, tableGenRecordValGetLoc, tableGenRecordValGetNameInit,
-    tableGenRecordValGetValue, tableGenRecordValNext, tableGenRecordValPrint, TableGenRecordRef,
-    TableGenRecordValRef,
+    tableGenRecordValGetValue, tableGenRecordValIsTemplateArg, tableGenRecordValNext,
+    tableGenRecordValPrint, TableGenRecordRef, TableGenRecordValRef,
 };
 
 use crate::error::{Error, SourceLoc, SourceLocation, TableGenError, WithLocation};
@@ -267,6 +267,10 @@ impl<'a> RecordValue<'a> {
             raw: ptr,
             _reference: PhantomData,
         }
+    }
+
+    pub fn is_template_arg(&self) -> bool {
+        unsafe { tableGenRecordValIsTemplateArg(self.raw) != 0 }
     }
 }
 
