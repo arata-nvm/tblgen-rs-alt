@@ -36,7 +36,11 @@ TableGenRecTyKind tableGenRecordGetFieldType(TableGenRecordRef record_ref,
 }
 
 TableGenRecordValRef tableGenRecordGetFirstValue(TableGenRecordRef record_ref) {
-  return wrap(unwrap(record_ref)->getValues().begin());
+  auto *it = unwrap(record_ref)->getValues().begin();
+  if (it == unwrap(record_ref)->getValues().end()) {
+    return nullptr;
+  }
+  return wrap(it);
 }
 
 TableGenRecordValRef tableGenRecordValNext(TableGenRecordRef record,
