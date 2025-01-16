@@ -32,6 +32,7 @@ namespace ctablegen {
 
 typedef std::map<std::string, std::unique_ptr<Record>, std::less<>> RecordMap;
 typedef std::vector<Record *> RecordVector;
+typedef std::vector<TableGenDiagnostic *> TableGenDiagnosticVector;
 typedef std::pair<std::string, TypedInit *> DagPair;
 
 class TableGenParser {
@@ -41,10 +42,12 @@ public:
   bool addSourceFile(const StringRef source);
   void addIncludePath(const StringRef include);
   RecordKeeper *parse();
+  std::vector<TableGenDiagnostic *> &getDiagnostics() { return diagnostics; }
 
   SourceMgr sourceMgr;
 private:
   std::vector<std::string> includeDirs;
+  std::vector<TableGenDiagnostic *> diagnostics;
 };
 
 // Utility
@@ -97,5 +100,9 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMap::const_iterator,
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<SMLoc>, TableGenSourceLocationRef);
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenFilePos, TableGenFilePosRef);
+
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenDiagnostic, TableGenDiagnosticRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::TableGenDiagnosticVector, TableGenDiagnosticVectorRef);
+
 
 #endif

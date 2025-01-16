@@ -37,6 +37,9 @@ typedef struct TableGenSourceLocation *TableGenSourceLocationRef;
 
 typedef struct TableGenFilePos *TableGenFilePosRef;
 
+typedef struct TableGenDiagnostic *TableGenDiagnosticRef;
+typedef struct TableGenDiagnosticVector *TableGenDiagnosticVectorRef;
+
 #ifdef __cplusplus
 }
 #endif

@@ -54,6 +54,12 @@ typedef struct TableGenFilePos {
     unsigned pos;
 } TableGenFilePos;
 
+typedef struct TableGenDiagnostic {
+	TableGenDiagKind kind;
+	TableGenStringRef message;
+	TableGenSourceLocationRef loc;
+} TableGenDiagnostic;
+
 typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
 
 TableGenParserRef tableGenGet();
@@ -67,6 +73,10 @@ void tableGenAddIncludePath(TableGenParserRef tg_ref,
 /// NOTE: TableGen currently relies on global state within a given parser
 ///       invocation, so this function is not thread-safe.
 TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref);
+
+TableGenDiagnosticVectorRef tableGenGetAllDiagnostics(TableGenParserRef tg_ref);
+TableGenDiagnosticRef tableGenDiagnosticVectorGet(TableGenDiagnosticVectorRef vec_ref, size_t index);
+void tableGenDiagnosticVectorFree(TableGenDiagnosticVectorRef vec_ref);
 
 // LLVM RecordKeeper
 void tableGenRecordKeeperFree(TableGenRecordKeeperRef rk_ref);

@@ -12,13 +12,35 @@
 #include "TableGen.h"
 #include "Types.h"
 #include <cstring>
+#include <optional>
+#include <iostream>
 
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
 
+static std::optional<TableGenDiagnostic *> convertDiagnostic(const llvm::SMDiagnostic &diag) {
+	TableGenDiagnostic *lspDiag = new TableGenDiagnostic();
+	lspDiag->kind = static_cast<TableGenDiagKind>(diag.getKind());
+	lspDiag->message = TableGenStringRef{.data = diag.getMessage().data(), .len = diag.getMessage().size()};
+	lspDiag->loc = wrap(new ArrayRef(diag.getLoc()));
+	return lspDiag;
+}
+
 RecordKeeper *ctablegen::TableGenParser::parse() {
   auto recordKeeper = new RecordKeeper;
   sourceMgr.setIncludeDirs(includeDirs);
+
+  struct DiagHandlerContext {
+    std::vector<TableGenDiagnostic *> &diagnostics;
+  } handlerContext{diagnostics};
+
+  sourceMgr.setDiagHandler([](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
+    auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
+    if (auto lspDiag = convertDiagnostic(diag)) {
+      ctx->diagnostics.push_back(*lspDiag);
+    }
+  }, &handlerContext);
+
   bool result = TableGenParseFile(sourceMgr, *recordKeeper);
   if (!result) {
     return recordKeeper;
@@ -77,6 +99,22 @@ void tableGenAddIncludePath(TableGenParserRef tg_ref,
 
 TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref) {
   return wrap(unwrap(tg_ref)->parse());
+}
+
+TableGenDiagnosticVectorRef
+tableGenGetAllDiagnostics(TableGenParserRef tg_ref) {
+  return wrap(new ctablegen::TableGenDiagnosticVector(unwrap(tg_ref)->getDiagnostics()));
+}
+
+TableGenDiagnosticRef tableGenDiagnosticVectorGet(TableGenDiagnosticVectorRef vec_ref, size_t index) {
+  auto *vec = unwrap(vec_ref);
+  if (index < vec->size())
+    return wrap(((*vec)[index]));
+  return nullptr;
+}
+
+void tableGenDiagnosticVectorFree(TableGenDiagnosticVectorRef vec_ref) {
+  delete unwrap(vec_ref);
 }
 
 // LLVM ListType

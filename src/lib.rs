@@ -101,8 +101,15 @@ use std::marker::PhantomData;
 use std::sync::Mutex;
 
 pub use error::Error;
+use error::SourceLocation;
 use error::TableGenError;
 pub use init::TypedInit;
+use raw::tableGenDiagnosticVectorFree;
+use raw::tableGenDiagnosticVectorGet;
+use raw::tableGenGetAllDiagnostics;
+use raw::TableGenDiagKind;
+use raw::TableGenDiagnosticRef;
+use raw::TableGenDiagnosticVectorRef;
 pub use record::Record;
 pub use record::RecordValue;
 pub use record_keeper::RecordKeeper;
@@ -204,6 +211,11 @@ impl<'s> TableGenParser<'s> {
             let res = if !keeper.is_null() {
                 Ok(RecordKeeper::from_raw(keeper, self))
             } else {
+                let raw_diagnostics = tableGenGetAllDiagnostics(self.raw);
+                let diagnostics_iter = DiagnosticIter::from_raw_vector(raw_diagnostics);
+                for diag in diagnostics_iter {
+                    eprintln!("{:?} {:?} {:?}", diag.kind(), diag.message(), diag.loc());
+                }
                 Err(TableGenError::Parse.into())
             };
             drop(guard);
@@ -226,3 +238,66 @@ impl<'s> Drop for TableGenParser<'s> {
 /// [`RecordKeeper::source_info`](RecordKeeper::source_info).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceInfo<'a>(pub(crate) &'a TableGenParser<'a>);
+
+pub struct DiagnosticIter<'a> {
+    raw: TableGenDiagnosticVectorRef,
+    index: usize,
+    _reference: PhantomData<&'a ()>,
+}
+
+impl<'a> DiagnosticIter<'a> {
+    unsafe fn from_raw_vector(ptr: TableGenDiagnosticVectorRef) -> Self {
+        Self {
+            raw: ptr,
+            index: 0,
+            _reference: PhantomData,
+        }
+    }
+}
+
+impl<'a> Iterator for DiagnosticIter<'a> {
+    type Item = Diagnostic<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = unsafe { tableGenDiagnosticVectorGet(self.raw, self.index) };
+        self.index += 1;
+        if next.is_null() {
+            None
+        } else {
+            unsafe { Some(Diagnostic::from_raw(next)) }
+        }
+    }
+}
+
+impl<'a> Drop for DiagnosticIter<'a> {
+    fn drop(&mut self) {
+        unsafe { tableGenDiagnosticVectorFree(self.raw) }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Diagnostic<'a> {
+    raw: TableGenDiagnosticRef,
+    _reference: PhantomData<&'a TableGenDiagnosticRef>,
+}
+
+impl<'a> Diagnostic<'a> {
+    pub unsafe fn from_raw(ptr: TableGenDiagnosticRef) -> Self {
+        Self {
+            raw: ptr,
+            _reference: PhantomData,
+        }
+    }
+
+    pub fn kind(&self) -> TableGenDiagKind::Type {
+        unsafe { *self.raw }.kind
+    }
+
+    pub fn message(&self) -> StringRef {
+        unsafe { StringRef::from_raw((*self.raw).message) }
+    }
+
+    pub fn loc(&self) -> SourceLocation {
+        unsafe { SourceLocation::from_raw((*self.raw).loc) }
+    }
+}
