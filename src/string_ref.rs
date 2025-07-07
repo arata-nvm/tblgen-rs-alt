@@ -8,7 +8,7 @@ pub struct StringRef<'a> {
     _reference: PhantomData<&'a TableGenStringRef>,
 }
 
-impl<'a> StringRef<'a> {
+impl StringRef<'_> {
     pub unsafe fn to_raw(self) -> TableGenStringRef {
         self.raw
     }
@@ -22,7 +22,7 @@ impl<'a> StringRef<'a> {
 
     pub unsafe fn from_option_raw(raw: TableGenStringRef) -> Option<Self> {
         if !raw.data.is_null() {
-            Some(Self::from_raw(raw))
+            Some(unsafe { Self::from_raw(raw) })
         } else {
             None
         }

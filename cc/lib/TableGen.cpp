@@ -13,7 +13,6 @@
 #include "Types.h"
 #include <cstring>
 #include <optional>
-#include <iostream>
 
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
@@ -22,7 +21,8 @@ static std::optional<TableGenDiagnostic *> convertDiagnostic(const llvm::SMDiagn
 	TableGenDiagnostic *lspDiag = new TableGenDiagnostic();
 	lspDiag->kind = static_cast<TableGenDiagKind>(diag.getKind());
 	lspDiag->message = TableGenStringRef{.data = diag.getMessage().data(), .len = diag.getMessage().size()};
-	lspDiag->loc = wrap(new ArrayRef(diag.getLoc()));
+	SMLoc loc = diag.getLoc();
+	lspDiag->loc = wrap(new ArrayRef(loc));
 	return lspDiag;
 }
 
@@ -41,6 +41,13 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
     }
   }, &handlerContext);
 
+  for (const auto &file : files) {
+    std::string full_path;
+    if (!sourceMgr.AddIncludeFile(file, SMLoc(), full_path)) {
+      return nullptr;
+    }
+  }
+
   bool result = TableGenParseFile(sourceMgr, *recordKeeper);
   if (!result) {
     return recordKeeper;
@@ -49,7 +56,7 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
   return nullptr;
 }
 
-void ctablegen::TableGenParser::addIncludePath(const StringRef include) {
+void ctablegen::TableGenParser::addIncludeDirectory(const StringRef include) {
   includeDirs.push_back(std::string(include));
 }
 
@@ -65,16 +72,8 @@ bool ctablegen::TableGenParser::addSource(const char *source) {
   return true;
 }
 
-bool ctablegen::TableGenParser::addSourceFile(const StringRef source) {
-  ErrorOr<std::unique_ptr<MemoryBuffer>> FileOrErr =
-      MemoryBuffer::getFile(source);
-
-  if (std::error_code EC = FileOrErr.getError()) {
-    return false;
-  }
-
-  sourceMgr.AddNewSourceBuffer(std::move(*FileOrErr), SMLoc());
-  return true;
+void ctablegen::TableGenParser::addSourceFile(const StringRef file) {
+  files.push_back(std::string(file));
 }
 
 TableGenParserRef tableGenGet() {
@@ -83,18 +82,18 @@ TableGenParserRef tableGenGet() {
 
 void tableGenFree(TableGenParserRef tg_ref) { delete unwrap(tg_ref); }
 
-TableGenBool tableGenAddSourceFile(TableGenParserRef tg_ref,
-                                   TableGenStringRef source) {
-  return unwrap(tg_ref)->addSourceFile(StringRef(source.data, source.len));
+void tableGenAddSourceFile(TableGenParserRef tg_ref, TableGenStringRef source) {
+  unwrap(tg_ref)->addSourceFile(StringRef(source.data, source.len));
 }
 
 TableGenBool tableGenAddSource(TableGenParserRef tg_ref, const char *source) {
   return unwrap(tg_ref)->addSource(source);
 }
 
-void tableGenAddIncludePath(TableGenParserRef tg_ref,
-                            TableGenStringRef include) {
-  return unwrap(tg_ref)->addIncludePath(StringRef(include.data, include.len));
+void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
+                                 TableGenStringRef include) {
+  return unwrap(tg_ref)->addIncludeDirectory(
+      StringRef(include.data, include.len));
 }
 
 TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref) {

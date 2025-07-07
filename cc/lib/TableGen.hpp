@@ -31,7 +31,7 @@ using namespace llvm;
 namespace ctablegen {
 
 typedef std::map<std::string, std::unique_ptr<Record>, std::less<>> RecordMap;
-typedef std::vector<Record *> RecordVector;
+typedef std::vector<const Record *> RecordVector;
 typedef std::vector<TableGenDiagnostic *> TableGenDiagnosticVector;
 typedef std::pair<std::string, TypedInit *> DagPair;
 
@@ -39,19 +39,21 @@ class TableGenParser {
 public:
   TableGenParser() {}
   bool addSource(const char *source);
-  bool addSourceFile(const StringRef source);
-  void addIncludePath(const StringRef include);
+  void addSourceFile(const StringRef source);
+  void addIncludeDirectory(const StringRef include);
   RecordKeeper *parse();
   std::vector<TableGenDiagnostic *> &getDiagnostics() { return diagnostics; }
 
   SourceMgr sourceMgr;
+
 private:
   std::vector<std::string> includeDirs;
+  std::vector<std::string> files;
   std::vector<TableGenDiagnostic *> diagnostics;
 };
 
 // Utility
-TableGenRecTyKind tableGenFromRecType(RecTy *rt);
+TableGenRecTyKind tableGenFromRecType(const RecTy *rt);
 
 /// A simple raw ostream subclass that forwards write_impl calls to the
 /// user-supplied callback together with opaque user-supplied data.
@@ -63,7 +65,7 @@ public:
         opaqueData(opaqueData), pos(0u) {}
 
   void write_impl(const char *ptr, size_t size) override {
-    TableGenStringRef string = TableGenStringRef { .data = ptr, .len = size };
+    TableGenStringRef string = TableGenStringRef{.data = ptr, .len = size};
     callback(string, opaqueData);
     pos += size;
   }
@@ -78,7 +80,8 @@ private:
 
 } // namespace ctablegen
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::TableGenParser, TableGenParserRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::TableGenParser,
+                                   TableGenParserRef);
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(RecordKeeper, TableGenRecordKeeperRef);
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMap, TableGenRecordMapRef);

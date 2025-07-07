@@ -23,7 +23,7 @@
 //! `SourceMgr` class.
 //!
 //! ```rust
-//! use tblgen_alt::{TableGenParser, RecordKeeper};
+//! use tblgen::{TableGenParser, RecordKeeper};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let keeper: RecordKeeper = TableGenParser::new()
@@ -60,20 +60,20 @@
 
 use std::{
     convert::Infallible,
-    ffi::{c_void, NulError},
+    ffi::{NulError, c_void},
     fmt::{self, Display, Formatter},
     str::Utf8Error,
     string::FromUtf8Error,
 };
 
 use crate::{
+    SourceInfo, TableGenParser,
     raw::{
-        tableGenPrintError, tableGenSourceLocationClone, tableGenSourceLocationFree,
-        tableGenSourceLocationNull, TableGenDiagKind::TABLEGEN_DK_ERROR, TableGenSourceLocationRef,
+        TableGenDiagKind::TABLEGEN_DK_ERROR, TableGenSourceLocationRef, tableGenPrintError,
+        tableGenSourceLocationClone, tableGenSourceLocationFree, tableGenSourceLocationNull,
     },
     string_ref::StringRef,
     util::print_string_callback,
-    SourceInfo, TableGenParser,
 };
 
 /// Enum of TableGen errors.

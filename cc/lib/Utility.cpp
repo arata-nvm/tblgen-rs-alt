@@ -12,11 +12,10 @@
 #include "TableGen.hpp"
 #include "Types.h"
 #include "llvm/Support/SourceMgr.h"
-#include "llvm/TableGen/Error.h"
 
 namespace ctablegen {
 
-TableGenRecTyKind tableGenFromRecType(RecTy *rt) {
+TableGenRecTyKind tableGenFromRecType(const RecTy *rt) {
   switch (rt->getRecTyKind()) {
   case RecTy::BitRecTyKind:
     return TableGenBitRecTyKind;
@@ -69,7 +68,8 @@ int8_t *tableGenBitsInitGetValue(TableGenTypedInitRef ti, size_t *len) {
   auto bits = new int8_t[*len];
 
   for (size_t i = 0; i < *len; i++) {
-    bits[i] = reinterpret_cast<BitInit *>(bits_init->getBit(i))->getValue();
+    bits[i] =
+        reinterpret_cast<const BitInit *>(bits_init->getBit(i))->getValue();
   }
 
   return bits;
@@ -94,7 +94,7 @@ TableGenTypedInitRef tableGenBitsInitGetBitInit(TableGenTypedInitRef ti,
   if (!bits_init)
     return nullptr;
 
-  return wrap(static_cast<BitInit *>(bits_init->getBit(index)));
+  return wrap(static_cast<const BitInit *>(bits_init->getBit(index)));
 }
 
 TableGenBool tableGenIntInitGetValue(TableGenTypedInitRef ti,
@@ -151,9 +151,11 @@ void tableGenInitPrint(TableGenTypedInitRef ti, TableGenStringCallback callback,
 
 void tableGenInitDump(TableGenTypedInitRef ti) { unwrap(ti)->dump(); }
 
-TableGenBool tableGenPrintError(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenDiagKind dk,
-                        TableGenStringRef message,
-                        TableGenStringCallback callback, void *userData) {
+TableGenBool tableGenPrintError(TableGenParserRef ref,
+                                TableGenSourceLocationRef loc_ref,
+                                TableGenDiagKind dk, TableGenStringRef message,
+                                TableGenStringCallback callback,
+                                void *userData) {
   ctablegen::CallbackOstream stream(callback, userData);
   ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
 
@@ -179,10 +181,12 @@ TableGenBool tableGenPrintError(TableGenParserRef ref, TableGenSourceLocationRef
 }
 
 TableGenSourceLocationRef tableGenSourceLocationNull() {
-  return wrap(new ArrayRef(SMLoc()));
+  auto source_loc = SMLoc();
+  return wrap(new ArrayRef(source_loc));
 }
 
-TableGenSourceLocationRef tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
+TableGenSourceLocationRef
+tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
   return wrap(new ArrayRef(*unwrap(loc_ref)));
 }
 

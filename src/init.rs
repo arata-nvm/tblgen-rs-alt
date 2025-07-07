@@ -17,11 +17,11 @@
 
 use crate::{
     raw::{
-        tableGenBitInitGetValue, tableGenBitsInitGetBitInit, tableGenBitsInitGetNumBits,
-        tableGenDagRecordArgName, tableGenDagRecordGet, tableGenDagRecordNumArgs,
-        tableGenDagRecordOperator, tableGenDefInitGetValue, tableGenInitPrint, tableGenInitRecType,
-        tableGenIntInitGetValue, tableGenListRecordGet, tableGenListRecordNumElements,
-        tableGenStringInitGetValue, TableGenRecTyKind, TableGenTypedInitRef,
+        TableGenRecTyKind, TableGenTypedInitRef, tableGenBitInitGetValue,
+        tableGenBitsInitGetBitInit, tableGenBitsInitGetNumBits, tableGenDagRecordArgName,
+        tableGenDagRecordGet, tableGenDagRecordNumArgs, tableGenDagRecordOperator,
+        tableGenDefInitGetValue, tableGenInitPrint, tableGenInitRecType, tableGenIntInitGetValue,
+        tableGenListRecordGet, tableGenListRecordNumElements, tableGenStringInitGetValue,
     },
     string_ref::StringRef,
     util::print_callback,
@@ -51,7 +51,7 @@ pub enum TypedInit<'a> {
     Invalid,
 }
 
-impl<'a> TypedInit<'a> {
+impl TypedInit<'_> {
     fn variant_name(&self) -> &'static str {
         match self {
             TypedInit::Bit(_) => "Bit",
@@ -67,7 +67,7 @@ impl<'a> TypedInit<'a> {
     }
 }
 
-impl<'a> Display for TypedInit<'a> {
+impl Display for TypedInit<'_> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             Self::Bit(init) => write!(f, "{}", &init),
@@ -83,7 +83,7 @@ impl<'a> Display for TypedInit<'a> {
     }
 }
 
-impl<'a> Debug for TypedInit<'a> {
+impl Debug for TypedInit<'_> {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "TypedInit(")?;
         let name = self.variant_name();
@@ -197,18 +197,20 @@ impl<'a> TypedInit<'a> {
     /// The raw object must be valid.
     #[allow(non_upper_case_globals)]
     pub unsafe fn from_raw(init: TableGenTypedInitRef) -> Self {
-        let t = tableGenInitRecType(init);
+        unsafe {
+            let t = tableGenInitRecType(init);
 
-        use TableGenRecTyKind::*;
-        match t {
-            TableGenBitRecTyKind => Self::Bit(BitInit::from_raw(init)),
-            TableGenBitsRecTyKind => Self::Bits(BitsInit::from_raw(init)),
-            TableGenDagRecTyKind => TypedInit::Dag(DagInit::from_raw(init)),
-            TableGenIntRecTyKind => TypedInit::Int(IntInit::from_raw(init)),
-            TableGenListRecTyKind => TypedInit::List(ListInit::from_raw(init)),
-            TableGenRecordRecTyKind => Self::Def(DefInit::from_raw(init)),
-            TableGenStringRecTyKind => Self::String(StringInit::from_raw(init)),
-            _ => Self::Invalid,
+            use TableGenRecTyKind::*;
+            match t {
+                TableGenBitRecTyKind => Self::Bit(BitInit::from_raw(init)),
+                TableGenBitsRecTyKind => Self::Bits(BitsInit::from_raw(init)),
+                TableGenDagRecTyKind => TypedInit::Dag(DagInit::from_raw(init)),
+                TableGenIntRecTyKind => TypedInit::Int(IntInit::from_raw(init)),
+                TableGenListRecTyKind => TypedInit::List(ListInit::from_raw(init)),
+                TableGenRecordRecTyKind => Self::Def(DefInit::from_raw(init)),
+                TableGenStringRecTyKind => Self::String(StringInit::from_raw(init)),
+                _ => Self::Invalid,
+            }
         }
     }
 }

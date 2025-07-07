@@ -1,8 +1,10 @@
 use std::{
     env,
     error::Error,
+    ffi::OsStr,
+    fs::read_dir,
     path::Path,
-    process::{exit, Command},
+    process::{Command, exit},
     str,
 };
 
@@ -12,13 +14,15 @@ const LLVM_MAJOR_VERSION: usize = if cfg!(feature = "llvm16-0") {
     17
 } else if cfg!(feature = "llvm18-0") {
     18
-} else {
+} else if cfg!(feature = "llvm19-0") {
     19
+} else {
+    20
 };
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("{}", error);
+        eprintln!("{error}");
         exit(1);
     }
 }
@@ -26,10 +30,9 @@ fn main() {
 fn run() -> Result<(), Box<dyn Error>> {
     let version = llvm_config("--version")?;
 
-    if !version.starts_with(&format!("{}.", LLVM_MAJOR_VERSION)) {
+    if !version.starts_with(&format!("{LLVM_MAJOR_VERSION}.")) {
         return Err(format!(
-            "failed to find correct version ({}.x.x) of llvm-config (found {})",
-            LLVM_MAJOR_VERSION, version
+            "failed to find correct version ({LLVM_MAJOR_VERSION}.x.x) of llvm-config (found {version})",
         )
         .into());
     }
@@ -37,6 +40,8 @@ fn run() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=cc");
     println!("cargo:rustc-link-search={}", llvm_config("--libdir")?);
+
+    build_c_library()?;
 
     for name in llvm_config("--libnames")?.trim().split(' ') {
         println!("cargo:rustc-link-lib=static={}", parse_library_name(name)?);
@@ -62,32 +67,9 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    println!("cargo:rustc-link-lib=ffi");
-
     if let Some(name) = get_system_libcpp() {
-        println!("cargo:rustc-link-lib={}", name);
+        println!("cargo:rustc-link-lib={name}");
     }
-
-    std::env::set_var("CXXFLAGS", llvm_config("--cxxflags")?);
-    std::env::set_var("CFLAGS", llvm_config("--cflags")?);
-    println!("cargo:rustc-link-search={}", &env::var("OUT_DIR")?);
-
-    cc::Build::new()
-        .files(
-            std::fs::read_dir("cc/lib")?
-                .filter(|r| r.is_ok())
-                .map(|r| r.unwrap().path())
-                .filter(|r| r.is_file() && r.extension().unwrap() == "cpp"),
-        )
-        .cpp(true)
-        .include("cc/include")
-        .include(llvm_config("--includedir")?)
-        .flag(&llvm_config("--cxxflags")?)
-        .flag("-Wno-unused-parameter")
-        .std("c++17")
-        .compile("CTableGen");
-
-    println!("cargo:rustc-link-lib=static=CTableGen");
 
     bindgen::builder()
         .header("wrapper.h")
@@ -95,9 +77,30 @@ fn run() -> Result<(), Box<dyn Error>> {
         .clang_arg(format!("-I{}", llvm_config("--includedir")?))
         .default_enum_style(bindgen::EnumVariation::ModuleConsts)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
-        .generate()
-        .unwrap()
+        .generate()?
         .write_to_file(Path::new(&env::var("OUT_DIR")?).join("bindings.rs"))?;
+
+    Ok(())
+}
+
+fn build_c_library() -> Result<(), Box<dyn Error>> {
+    unsafe { env::set_var("CXXFLAGS", llvm_config("--cxxflags")?) };
+    unsafe { env::set_var("CFLAGS", llvm_config("--cflags")?) };
+
+    cc::Build::new()
+        .cpp(true)
+        .files(
+            read_dir("cc/lib")?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .map(|entry| entry.path())
+                .filter(|path| path.is_file() && path.extension() == Some(OsStr::new("cpp"))),
+        )
+        .include("cc/include")
+        .include(llvm_config("--includedir")?)
+        .flag("-Werror")
+        .std("c++17")
+        .compile("CTableGen");
 
     Ok(())
 }
@@ -117,9 +120,8 @@ fn llvm_config(argument: &str) -> Result<String, Box<dyn Error>> {
         .map(|path| Path::new(&path).join("bin"))
         .unwrap_or_default();
     let call = format!(
-        "{} --link-static {}",
-        prefix.join("llvm-config").display(),
-        argument
+        "{} --link-static {argument}",
+        prefix.join("llvm-config").display()
     );
 
     Ok(str::from_utf8(
@@ -137,5 +139,5 @@ fn llvm_config(argument: &str) -> Result<String, Box<dyn Error>> {
 fn parse_library_name(name: &str) -> Result<&str, String> {
     name.strip_prefix("lib")
         .and_then(|name| name.split('.').next())
-        .ok_or_else(|| format!("failed to parse library name: {}", name))
+        .ok_or_else(|| format!("failed to parse library name: {name}"))
 }

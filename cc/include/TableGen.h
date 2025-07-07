@@ -26,10 +26,10 @@ extern "C" {
 #endif
 
 typedef enum {
-    TABLEGEN_DK_ERROR,
-    TABLEGEN_DK_WARNING,
-    TABLEGEN_DK_REMARK,
-    TABLEGEN_DK_NOTE,
+  TABLEGEN_DK_ERROR,
+  TABLEGEN_DK_WARNING,
+  TABLEGEN_DK_REMARK,
+  TABLEGEN_DK_NOTE,
 } TableGenDiagKind;
 
 typedef enum {
@@ -65,10 +65,9 @@ typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
 TableGenParserRef tableGenGet();
 void tableGenFree(TableGenParserRef tg_ref);
 TableGenBool tableGenAddSource(TableGenParserRef tg_ref, const char *source);
-TableGenBool tableGenAddSourceFile(TableGenParserRef tg_ref,
-                                   TableGenStringRef source);
-void tableGenAddIncludePath(TableGenParserRef tg_ref,
-                            TableGenStringRef include);
+void tableGenAddSourceFile(TableGenParserRef tg_ref, TableGenStringRef source);
+void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
+                                 TableGenStringRef include);
 
 /// NOTE: TableGen currently relies on global state within a given parser
 ///       invocation, so this function is not thread-safe.
@@ -178,14 +177,17 @@ TableGenBool tableGenIntInitGetValue(TableGenTypedInitRef ti, int64_t *integer);
 TableGenStringRef tableGenStringInitGetValue(TableGenTypedInitRef ti);
 char *tableGenStringInitGetValueNewString(TableGenTypedInitRef ti);
 TableGenRecordRef tableGenDefInitGetValue(TableGenTypedInitRef ti);
-void tableGenInitPrint(TableGenTypedInitRef ti,
-                         TableGenStringCallback callback, void *userData);
+void tableGenInitPrint(TableGenTypedInitRef ti, TableGenStringCallback callback,
+                       void *userData);
 void tableGenInitDump(TableGenTypedInitRef ti);
-TableGenBool tableGenPrintError(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenDiagKind dk,
-                        TableGenStringRef message,
-                        TableGenStringCallback callback, void *userData);
+TableGenBool tableGenPrintError(TableGenParserRef ref,
+                                TableGenSourceLocationRef loc_ref,
+                                TableGenDiagKind dk, TableGenStringRef message,
+                                TableGenStringCallback callback,
+                                void *userData);
 TableGenSourceLocationRef tableGenSourceLocationNull();
-TableGenSourceLocationRef tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
+TableGenSourceLocationRef
+tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
 TableGenBool tableGenConvertLoc(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenFilePosRef file_pos_ref);
 
 // Memory

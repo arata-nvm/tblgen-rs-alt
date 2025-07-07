@@ -1,27 +1,28 @@
 [package]
-name = "tblgen-alt"
-version = "0.4.0"
-edition = "2021"
+name = "tblgen"
+version = "0.6.0"
+edition = "2024"
 license = "MIT OR Apache-2.0"
-authors = ["Daan Vanoverloop"]
-description = "Safe Rust bindings for TableGen. Alternative updated version."
-repository = "https://github.com/edg-l/tblgen-rs-alt"
+authors = ["Daan Vanoverloop", "Yota Toyama", "Edgar Luque"]
+description = "Safe Rust bindings for TableGen."
+repository = "https://github.com/mlir-rs/tblgen-rs"
 keywords = ["llvm", "tablegen", "bindings", "wrapper"]
 categories = ["development-tools::ffi"]
-documentation = "https://danacus.gitlab.io/tblgen-rs/tblgen/"
+documentation = "https://mlir-rs.github.io/tblgen-rs/tblgen/"
 exclude = ["doc/"]
 
 [features]
-default = ["llvm19-0"]
+default = ["llvm20-0"]
 llvm16-0 = []
 llvm17-0 = []
 llvm18-0 = []
 llvm19-0 = []
+llvm20-0 = []
 
 [dependencies]
-thiserror = "1.0.61"
+thiserror = "2.0.12"
 paste = "1.0.15"
 
 [build-dependencies]
-bindgen = "0.69.4"
-cc = "1.0.98"
+bindgen = "0.71.1"
+cc = "1.2.17"

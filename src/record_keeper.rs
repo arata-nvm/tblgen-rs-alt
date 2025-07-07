@@ -10,18 +10,18 @@
 
 use std::marker::PhantomData;
 
-#[cfg(any(feature = "llvm18-0", feature = "llvm19-0"))]
+#[cfg(any(feature = "llvm18-0", feature = "llvm19-0", feature = "llvm20-0"))]
 use crate::error::TableGenError;
 #[cfg(any(feature = "llvm16-0", feature = "llvm17-0"))]
 use crate::error::{SourceLocation, TableGenError, WithLocation};
 use crate::raw::{
+    TableGenRecordKeeperIteratorRef, TableGenRecordKeeperRef, TableGenRecordVectorRef,
     tableGenRecordKeeperFree, tableGenRecordKeeperGetAllDerivedDefinitions,
     tableGenRecordKeeperGetClass, tableGenRecordKeeperGetDef, tableGenRecordKeeperGetFirstClass,
     tableGenRecordKeeperGetFirstDef, tableGenRecordKeeperGetNextClass,
     tableGenRecordKeeperGetNextDef, tableGenRecordKeeperItemGetName,
     tableGenRecordKeeperItemGetRecord, tableGenRecordKeeperIteratorClone,
     tableGenRecordKeeperIteratorFree, tableGenRecordVectorFree, tableGenRecordVectorGet,
-    TableGenRecordKeeperIteratorRef, TableGenRecordKeeperRef, TableGenRecordVectorRef,
 };
 use crate::record::Record;
 use crate::string_ref::StringRef;
@@ -96,7 +96,7 @@ impl<'s> RecordKeeper<'s> {
     }
 }
 
-impl<'s> Drop for RecordKeeper<'s> {
+impl Drop for RecordKeeper<'_> {
     fn drop(&mut self) {
         unsafe {
             tableGenRecordKeeperFree(self.raw);
@@ -115,13 +115,17 @@ trait NextRecord {
 
 impl NextRecord for IsClass {
     unsafe fn next(raw: &mut TableGenRecordKeeperIteratorRef) {
-        tableGenRecordKeeperGetNextClass(raw);
+        unsafe {
+            tableGenRecordKeeperGetNextClass(raw);
+        }
     }
 }
 
 impl NextRecord for IsDef {
     unsafe fn next(raw: &mut TableGenRecordKeeperIteratorRef) {
-        tableGenRecordKeeperGetNextDef(raw);
+        unsafe {
+            tableGenRecordKeeperGetNextDef(raw);
+        }
     }
 }
 
@@ -131,7 +135,7 @@ pub struct NamedRecordIter<'a, T> {
     _kind: PhantomData<&'a T>,
 }
 
-impl<'a, T> NamedRecordIter<'a, T> {
+impl<T> NamedRecordIter<'_, T> {
     unsafe fn from_raw(raw: TableGenRecordKeeperIteratorRef) -> Self {
         NamedRecordIter {
             raw,
@@ -159,13 +163,13 @@ impl<'a, T: NextRecord> Iterator for NamedRecordIter<'a, T> {
     }
 }
 
-impl<'a, T> Clone for NamedRecordIter<'a, T> {
+impl<T> Clone for NamedRecordIter<'_, T> {
     fn clone(&self) -> Self {
         unsafe { Self::from_raw(tableGenRecordKeeperIteratorClone(self.raw)) }
     }
 }
 
-impl<'a, T> Drop for NamedRecordIter<'a, T> {
+impl<T> Drop for NamedRecordIter<'_, T> {
     fn drop(&mut self) {
         unsafe { tableGenRecordKeeperIteratorFree(self.raw) }
     }
@@ -201,7 +205,7 @@ impl<'a> Iterator for RecordIter<'a> {
     }
 }
 
-impl<'a> Drop for RecordIter<'a> {
+impl Drop for RecordIter<'_> {
     fn drop(&mut self) {
         unsafe { tableGenRecordVectorFree(self.raw) }
     }
