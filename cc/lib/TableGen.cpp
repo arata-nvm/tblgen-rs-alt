@@ -12,12 +12,11 @@
 #include "TableGen.h"
 #include "Types.h"
 #include <cstring>
-#include <optional>
 
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
 
-static std::optional<TableGenDiagnostic *> convertDiagnostic(const llvm::SMDiagnostic &diag) {
+static TableGenDiagnostic * convertDiagnostic(const llvm::SMDiagnostic &diag) {
 	TableGenDiagnostic *lspDiag = new TableGenDiagnostic();
 	lspDiag->kind = static_cast<TableGenDiagKind>(diag.getKind());
 	lspDiag->message = TableGenStringRef{.data = diag.getMessage().data(), .len = diag.getMessage().size()};
@@ -34,13 +33,6 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
     std::vector<TableGenDiagnostic *> &diagnostics;
   } handlerContext{diagnostics};
 
-  sourceMgr.setDiagHandler([](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
-    auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
-    if (auto lspDiag = convertDiagnostic(diag)) {
-      ctx->diagnostics.push_back(*lspDiag);
-    }
-  }, &handlerContext);
-
   for (const auto &file : files) {
     std::string full_path;
     if (!sourceMgr.AddIncludeFile(file, SMLoc(), full_path)) {
@@ -48,7 +40,16 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
     }
   }
 
+  sourceMgr.setDiagHandler([](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
+    auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
+    auto lspDiag = convertDiagnostic(diag);
+    ctx->diagnostics.push_back(lspDiag);
+  }, &handlerContext);
+
   bool result = TableGenParseFile(sourceMgr, *recordKeeper);
+
+  sourceMgr.setDiagHandler(nullptr);
+
   if (!result) {
     return recordKeeper;
   }
