@@ -461,4 +461,33 @@ mod tests {
             panic!("expected error")
         }
     }
+
+    #[test]
+    fn is_template_arg() {
+        let rk = TableGenParser::new()
+            .add_source(
+                r#"
+                class A<int a, int c> {
+                    int b = 5;
+                    int c = 6;
+                }
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let a = rk.class("A").expect("class A exists");
+        let values = a.values();
+        for v in values {
+            print!("{v}");
+            let expect = match v.name.to_str() {
+                Ok("A:a") => true,
+                Ok("A:c") => true,
+                Ok("b") => false,
+                Ok("c") => false,
+                _ => panic!("unexpected value name"),
+            };
+            assert_eq!(expect, v.is_template_arg());
+        }
+    }
 }
