@@ -5,10 +5,10 @@ use std::{
 };
 
 use crate::{
-    error::{SourceLocation, TableGenError},
-    raw::{tableGenConvertLoc, TableGenFilePos, TableGenStringRef},
-    string_ref::StringRef,
     SourceInfo,
+    error::{SourceLocation, TableGenError},
+    raw::{TableGenFilePos, TableGenStringRef, tableGenConvertLoc},
+    string_ref::StringRef,
 };
 
 #[derive(Debug)]
@@ -78,4 +78,31 @@ pub fn convert_loc(info: SourceInfo, loc: &SourceLocation) -> Option<FilePos> {
     let file_pos_raw = unsafe { file_pos.assume_init() };
     let file_pos = unsafe { FilePos::from_raw(file_pos_raw) };
     Some(file_pos)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{TableGenParser, error::SourceLoc, util::convert_loc};
+
+    #[test]
+    fn record() {
+        let source = "class Foo { int x; }";
+        let rk = TableGenParser::new()
+            .add_source(source)
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+
+        // class Foo { int x; }
+        //       ^
+        let foo = rk.class("Foo").expect("class Foo exists");
+        let loc = convert_loc(rk.source_info(), &foo.source_location()).expect("valid location");
+        assert_eq!(loc.pos(), 6);
+
+        // class Foo { int x; }
+        //                 ^
+        let foo_x = foo.value("x").expect("x exists");
+        let loc = convert_loc(rk.source_info(), &foo_x.source_location()).expect("valid location");
+        assert_eq!(loc.pos(), 16);
+    }
 }
