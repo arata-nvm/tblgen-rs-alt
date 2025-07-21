@@ -19,7 +19,13 @@ using ctablegen::tableGenFromRecType;
 static TableGenDiagnostic * convertDiagnostic(const llvm::SMDiagnostic &diag) {
 	TableGenDiagnostic *lspDiag = new TableGenDiagnostic();
 	lspDiag->kind = static_cast<TableGenDiagKind>(diag.getKind());
-	lspDiag->message = TableGenStringRef{.data = diag.getMessage().data(), .len = diag.getMessage().size()};
+
+	llvm::StringRef diagMsg = diag.getMessage();
+	char *message = new char[diagMsg.size() + 1];
+  std::strcpy(message, diagMsg.data());
+  message[diagMsg.size()] = '\0';
+	lspDiag->message = TableGenStringRef{.data = message, .len = diag.getMessage().size()};
+
 	SMLoc loc = diag.getLoc();
 	lspDiag->loc = wrap(new ArrayRef(loc));
 	return lspDiag;
