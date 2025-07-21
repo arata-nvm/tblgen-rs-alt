@@ -83,7 +83,17 @@ TableGenParserRef tableGenGet() {
   return wrap(new ctablegen::TableGenParser());
 }
 
-void tableGenFree(TableGenParserRef tg_ref) { delete unwrap(tg_ref); }
+void tableGenFree(TableGenParserRef tg_ref) {
+  auto *tg = unwrap(tg_ref);
+  for (auto *diag : tg->getDiagnostics()) {
+    if (diag) {
+      delete[] diag->message.data;
+      delete unwrap(diag->loc);
+      delete diag;
+    }
+  }
+  delete tg;
+}
 
 void tableGenAddSourceFile(TableGenParserRef tg_ref, TableGenStringRef source) {
   unwrap(tg_ref)->addSourceFile(StringRef(source.data, source.len));
