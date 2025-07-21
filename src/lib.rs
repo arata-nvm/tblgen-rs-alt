@@ -122,12 +122,12 @@ pub use error::Error;
 use error::SourceLocation;
 use error::TableGenError;
 pub use init::TypedInit;
-use raw::tableGenDiagnosticVectorFree;
-use raw::tableGenDiagnosticVectorGet;
-use raw::tableGenGetAllDiagnostics;
 use raw::TableGenDiagKind;
 use raw::TableGenDiagnosticRef;
 use raw::TableGenDiagnosticVectorRef;
+use raw::tableGenDiagnosticVectorFree;
+use raw::tableGenDiagnosticVectorGet;
+use raw::tableGenGetAllDiagnostics;
 pub use record::Record;
 pub use record::RecordValue;
 pub use record_keeper::RecordKeeper;
@@ -137,6 +137,8 @@ use raw::{
     tableGenFree, tableGenGet, tableGenParse,
 };
 use string_ref::StringRef;
+
+use crate::raw::tableGenGetRecordKeeper;
 
 // TableGen only exposes `TableGenParseFile` in its API.
 // However, this function uses global state and therefore it is not thread safe.
@@ -214,27 +216,35 @@ impl<'s> TableGenParser<'s> {
         SourceInfo(self)
     }
 
-    /// Parses the TableGen source files and returns a [`RecordKeeper`].
+    /// Parses the TableGen source files and returns a [`ParseResult`].
     ///
     /// Due to limitations of TableGen, parsing TableGen is not thread-safe.
     /// In order to provide thread-safety, this method ensures that any
     /// concurrent parse operations are executed sequentially.
-    pub fn parse(self) -> Result<RecordKeeper<'s>, Error> {
+    pub fn parse(self) -> Result<ParseResult<'s>, ParseResult<'s>> {
         unsafe {
             let guard = TABLEGEN_PARSE_LOCK.lock().unwrap();
-            let keeper = tableGenParse(self.raw);
-            let res = if !keeper.is_null() {
-                Ok(RecordKeeper::from_raw(keeper, self))
-            } else {
-                let raw_diagnostics = tableGenGetAllDiagnostics(self.raw);
-                let diagnostics_iter = DiagnosticIter::from_raw_vector(raw_diagnostics);
-                for diag in diagnostics_iter {
-                    eprintln!("{:?} {:?} {:?}", diag.kind(), diag.message(), diag.loc());
-                }
-                Err(TableGenError::Parse.into())
+
+            let result = tableGenParse(self.raw);
+
+            let raw_diagnostics = tableGenGetAllDiagnostics(self.raw);
+            let diagnostics = DiagnosticIter::from_raw_vector(raw_diagnostics).collect::<Vec<_>>();
+
+            let raw_record_keeper = tableGenGetRecordKeeper(self.raw);
+            let record_keeper = RecordKeeper::from_raw(raw_record_keeper, self);
+
+            let parse_result = ParseResult {
+                record_keeper,
+                diagnostics,
             };
+            let parse_result = if result {
+                Ok(parse_result)
+            } else {
+                Err(parse_result)
+            };
+
             drop(guard);
-            res
+            parse_result
         }
     }
 }
@@ -245,6 +255,13 @@ impl Drop for TableGenParser<'_> {
             tableGenFree(self.raw);
         }
     }
+}
+
+/// Result of parsing TableGen source files.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseResult<'s> {
+    pub record_keeper: RecordKeeper<'s>,
+    pub diagnostics: Vec<Diagnostic<'s>>,
 }
 
 /// Reference to TableGen source file.
@@ -290,7 +307,7 @@ impl<'a> Drop for DiagnosticIter<'a> {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Diagnostic<'a> {
     raw: TableGenDiagnosticRef,
     _reference: PhantomData<&'a TableGenDiagnosticRef>,
@@ -314,5 +331,31 @@ impl<'a> Diagnostic<'a> {
 
     pub fn loc(&self) -> SourceLocation {
         unsafe { SourceLocation::from_raw((*self.raw).loc) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::TableGenParser;
+
+    #[test]
+    fn on_parse_error() {
+        let res = TableGenParser::new()
+            .add_source(
+                r#"
+                class A;
+
+                invalid_token
+
+                class B;
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect_err("invalid tablegen");
+
+        let rk = res.record_keeper;
+        assert!(rk.class("A").is_ok());
+        assert!(rk.class("B").is_err());
     }
 }

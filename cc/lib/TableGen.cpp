@@ -25,8 +25,8 @@ static TableGenDiagnostic * convertDiagnostic(const llvm::SMDiagnostic &diag) {
 	return lspDiag;
 }
 
-RecordKeeper *ctablegen::TableGenParser::parse() {
-  auto recordKeeper = new RecordKeeper;
+bool ctablegen::TableGenParser::parse() {
+  recordKeeper = new RecordKeeper;
   sourceMgr.setIncludeDirs(includeDirs);
 
   struct DiagHandlerContext {
@@ -36,7 +36,7 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
   for (const auto &file : files) {
     std::string full_path;
     if (!sourceMgr.AddIncludeFile(file, SMLoc(), full_path)) {
-      return nullptr;
+      return false;
     }
   }
 
@@ -50,11 +50,7 @@ RecordKeeper *ctablegen::TableGenParser::parse() {
 
   sourceMgr.setDiagHandler(nullptr);
 
-  if (!result) {
-    return recordKeeper;
-  }
-  delete recordKeeper;
-  return nullptr;
+  return !result;
 }
 
 void ctablegen::TableGenParser::addIncludeDirectory(const StringRef include) {
@@ -97,8 +93,12 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
       StringRef(include.data, include.len));
 }
 
-TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref) {
-  return wrap(unwrap(tg_ref)->parse());
+bool tableGenParse(TableGenParserRef tg_ref) {
+  return unwrap(tg_ref)->parse();
+}
+
+TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref) {
+  return wrap(unwrap(tg_ref)->getRecordKeeper());
 }
 
 TableGenDiagnosticVectorRef

@@ -41,7 +41,8 @@ public:
   bool addSource(const char *source);
   void addSourceFile(const StringRef source);
   void addIncludeDirectory(const StringRef include);
-  RecordKeeper *parse();
+  bool parse();
+  RecordKeeper *getRecordKeeper() { return recordKeeper; }
   std::vector<TableGenDiagnostic *> &getDiagnostics() { return diagnostics; }
 
   SourceMgr sourceMgr;
@@ -49,6 +50,8 @@ public:
 private:
   std::vector<std::string> includeDirs;
   std::vector<std::string> files;
+
+  RecordKeeper *recordKeeper = nullptr;
   std::vector<TableGenDiagnostic *> diagnostics;
 };
 

@@ -230,7 +230,8 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         rk.classes()
             .for_each(|i| assert!(i.1.name().unwrap() == i.0.unwrap()));
         rk.defs()
@@ -255,7 +256,8 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let a = rk.all_derived_definitions("A");
         assert!(a.map(|i| i.name().unwrap().to_string()).eq(["D1", "D2"]));
         let b = rk.all_derived_definitions("B");
@@ -273,7 +275,8 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         assert_eq!(rk.class("A").expect("class exists").name().unwrap(), "A");
         assert_eq!(rk.def("D1").expect("def exists").name().unwrap(), "D1");
     }

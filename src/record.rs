@@ -334,7 +334,8 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let d2 = rk.def("D2").expect("D2 exists");
         assert!(d2.subclass_of("A"));
         assert!(d2.subclass_of("B"));
@@ -362,7 +363,8 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let a = rk.def("A").expect("def A exists");
         assert_eq!(a.name(), Ok("A"));
         assert_eq!(a.int_value("size"), Ok(42));
@@ -390,7 +392,8 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let a = rk.def("A").expect("def A exists");
         let values = a.values();
         assert_eq!(values.clone().count(), 2);
@@ -422,7 +425,8 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let a = rk.def("A").expect("def A exists");
         if let Err(e) = a.string_value("a") {
             // With source info
@@ -451,7 +455,8 @@ mod tests {
                 .add_source("def A;")
                 .unwrap()
                 .parse()
-                .expect("valid tablegen");
+                .expect("valid tablegen")
+                .record_keeper;
             assert_eq!(
                 format!("{}", e.add_source_info(rk.source_info())).trim(),
                 "invalid conversion from Int to alloc::string::String\nfailed to print source information: invalid source location"
@@ -475,7 +480,8 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
         let a = rk.class("A").expect("class A exists");
         let values = a.values();
         for v in values {

@@ -17,6 +17,7 @@
 #else
 #include <stddef.h>
 #include <stdint.h>
+#include <stdbool.h>
 #endif
 
 #include "Types.h"
@@ -71,8 +72,9 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
 
 /// NOTE: TableGen currently relies on global state within a given parser
 ///       invocation, so this function is not thread-safe.
-TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref);
+bool tableGenParse(TableGenParserRef tg_ref);
 
+TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref);
 TableGenDiagnosticVectorRef tableGenGetAllDiagnostics(TableGenParserRef tg_ref);
 TableGenDiagnosticRef tableGenDiagnosticVectorGet(TableGenDiagnosticVectorRef vec_ref, size_t index);
 void tableGenDiagnosticVectorFree(TableGenDiagnosticVectorRef vec_ref);

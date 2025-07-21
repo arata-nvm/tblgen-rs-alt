@@ -488,7 +488,7 @@ mod tests {
         ($name:ident, $td_field:expr, $expected:expr) => {
             #[test]
             fn $name() {
-                let rk = TableGenParser::new()
+                let res = TableGenParser::new()
                     .add_source(&format!(
                         "
                     def A {{
@@ -500,7 +500,8 @@ mod tests {
                     .unwrap()
                     .parse()
                     .expect("valid tablegen");
-                let a = rk
+                let a = res
+                    .record_keeper
                     .def("A")
                     .expect("def A exists")
                     .value("a")
@@ -521,7 +522,7 @@ mod tests {
 
     #[test]
     fn dag() {
-        let rk = TableGenParser::new()
+        let res = TableGenParser::new()
             .add_source(
                 "
                 def ins;
@@ -539,7 +540,8 @@ mod tests {
             .unwrap()
             .parse()
             .expect("valid tablegen");
-        let a: DagInit = rk
+        let a: DagInit = res
+            .record_keeper
             .def("A")
             .expect("def A exists")
             .value("args")
@@ -567,7 +569,7 @@ mod tests {
 
     #[test]
     fn list() {
-        let rk = TableGenParser::new()
+        let res = TableGenParser::new()
             .add_source(
                 "
                 def A {
@@ -578,7 +580,8 @@ mod tests {
             .unwrap()
             .parse()
             .expect("valid tablegen");
-        let l: ListInit = rk
+        let l: ListInit = res
+            .record_keeper
             .def("A")
             .expect("def A exists")
             .value("l")

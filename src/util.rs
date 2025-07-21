@@ -91,7 +91,8 @@ mod tests {
             .add_source(source)
             .unwrap()
             .parse()
-            .expect("valid tablegen");
+            .expect("valid tablegen")
+            .record_keeper;
 
         // class Foo { int x; }
         //       ^
