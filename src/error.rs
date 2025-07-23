@@ -219,7 +219,7 @@ impl<E: std::error::Error> SourceError<E> {
             tableGenPrintError(
                 parser.raw,
                 location.raw,
-                TABLEGEN_DK_ERROR,
+                TableGenDiagKind::DK_ERROR,
                 StringRef::from(message).to_raw(),
                 Some(print_string_callback),
                 &mut data as *mut _ as *mut c_void,

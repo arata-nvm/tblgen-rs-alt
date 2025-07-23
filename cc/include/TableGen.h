@@ -27,10 +27,10 @@ extern "C" {
 #endif
 
 typedef enum {
-  TABLEGEN_DK_ERROR,
-  TABLEGEN_DK_WARNING,
-  TABLEGEN_DK_REMARK,
-  TABLEGEN_DK_NOTE,
+  DK_ERROR,
+  DK_WARNING,
+  DK_REMARK,
+  DK_NOTE,
 } TableGenDiagKind;
 
 typedef enum {
