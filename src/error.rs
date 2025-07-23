@@ -62,18 +62,20 @@ use std::{
     convert::Infallible,
     ffi::{NulError, c_void},
     fmt::{self, Display, Formatter},
+    mem::MaybeUninit,
     str::Utf8Error,
     string::FromUtf8Error,
 };
 
 use crate::{
-    SourceInfo, TableGenParser,
+    RecordKeeper, SourceInfo, TableGenParser,
     raw::{
-        TableGenDiagKind::TABLEGEN_DK_ERROR, TableGenSourceLocationRef, tableGenPrintError,
-        tableGenSourceLocationClone, tableGenSourceLocationFree, tableGenSourceLocationNull,
+        TableGenDiagKind, TableGenFilePos, TableGenSourceLocationRef, tableGenConvertLoc,
+        tableGenPrintError, tableGenSourceLocationClone, tableGenSourceLocationFree,
+        tableGenSourceLocationNull,
     },
     string_ref::StringRef,
-    util::print_string_callback,
+    util::{FilePos, print_string_callback},
 };
 
 /// Enum of TableGen errors.
@@ -266,9 +268,33 @@ pub trait WithLocation: std::error::Error + Sized {
 
 impl<E> WithLocation for E where E: std::error::Error {}
 
-pub trait SourceLoc {
+pub trait SourceLoc: Sized {
     /// Returns the source location.
     fn source_location(self) -> SourceLocation;
+
+    /// Converts the source location to a file position using the given record keeper.
+    ///
+    /// This method uses the parser's source manager to convert a source location
+    /// to a file position with filepath and character offset.
+    fn file_position(self, rk: &RecordKeeper) -> Option<FilePos> {
+        let parser = rk.source_info().0;
+
+        let mut file_pos = MaybeUninit::<TableGenFilePos>::uninit();
+        let result = unsafe {
+            tableGenConvertLoc(
+                parser.raw,
+                self.source_location().raw,
+                file_pos.as_mut_ptr(),
+            )
+        };
+        if result == 0 {
+            return None;
+        }
+
+        let file_pos_raw = unsafe { file_pos.assume_init() };
+        let file_pos = unsafe { FilePos::from_raw(file_pos_raw) };
+        Some(file_pos)
+    }
 }
 
 impl SourceLoc for SourceLocation {

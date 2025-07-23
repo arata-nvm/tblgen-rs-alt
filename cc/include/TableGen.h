@@ -55,12 +55,6 @@ typedef struct TableGenFilePos {
     unsigned pos;
 } TableGenFilePos;
 
-typedef struct TableGenDiagnostic {
-	TableGenDiagKind kind;
-	TableGenStringRef message;
-	TableGenSourceLocationRef loc;
-} TableGenDiagnostic;
-
 typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
 
 TableGenParserRef tableGenGet();
@@ -74,10 +68,16 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
 ///       invocation, so this function is not thread-safe.
 bool tableGenParse(TableGenParserRef tg_ref);
 
+// LLVM SMDiagnostic
 TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref);
-TableGenDiagnosticVectorRef tableGenGetAllDiagnostics(TableGenParserRef tg_ref);
-TableGenDiagnosticRef tableGenDiagnosticVectorGet(TableGenDiagnosticVectorRef vec_ref, size_t index);
-void tableGenDiagnosticVectorFree(TableGenDiagnosticVectorRef vec_ref);
+TableGenSMDiagnosticVectorRef tableGenGetDiagnostics(TableGenParserRef tg_ref);
+TableGenSMDiagnosticRef tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref, size_t index);
+
+TableGenDiagKind tableGenSMDiagnosticGetKind(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref);
+int tableGenSMDiagnosticGetLineNo(TableGenSMDiagnosticRef diag_ref);
+int tableGenSMDiagnosticGetColumnNo(TableGenSMDiagnosticRef diag_ref);
 
 // LLVM RecordKeeper
 void tableGenRecordKeeperFree(TableGenRecordKeeperRef rk_ref);

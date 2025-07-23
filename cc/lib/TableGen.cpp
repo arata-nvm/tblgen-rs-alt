@@ -16,27 +16,12 @@
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
 
-static TableGenDiagnostic * convertDiagnostic(const llvm::SMDiagnostic &diag) {
-	TableGenDiagnostic *lspDiag = new TableGenDiagnostic();
-	lspDiag->kind = static_cast<TableGenDiagKind>(diag.getKind());
-
-	llvm::StringRef diagMsg = diag.getMessage();
-	char *message = new char[diagMsg.size() + 1];
-  std::strcpy(message, diagMsg.data());
-  message[diagMsg.size()] = '\0';
-	lspDiag->message = TableGenStringRef{.data = message, .len = diag.getMessage().size()};
-
-	SMLoc loc = diag.getLoc();
-	lspDiag->loc = wrap(new ArrayRef(loc));
-	return lspDiag;
-}
-
 bool ctablegen::TableGenParser::parse() {
   recordKeeper = new RecordKeeper;
   sourceMgr.setIncludeDirs(includeDirs);
 
   struct DiagHandlerContext {
-    std::vector<TableGenDiagnostic *> &diagnostics;
+    SMDiagnosticVector &diagnostics;
   } handlerContext{diagnostics};
 
   for (const auto &file : files) {
@@ -48,8 +33,7 @@ bool ctablegen::TableGenParser::parse() {
 
   sourceMgr.setDiagHandler([](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
     auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
-    auto lspDiag = convertDiagnostic(diag);
-    ctx->diagnostics.push_back(lspDiag);
+    ctx->diagnostics.push_back(std::move(std::make_unique<llvm::SMDiagnostic>(diag)));
   }, &handlerContext);
 
   bool result = TableGenParseFile(sourceMgr, *recordKeeper);
@@ -84,15 +68,7 @@ TableGenParserRef tableGenGet() {
 }
 
 void tableGenFree(TableGenParserRef tg_ref) {
-  auto *tg = unwrap(tg_ref);
-  for (auto *diag : tg->getDiagnostics()) {
-    if (diag) {
-      delete[] diag->message.data;
-      delete unwrap(diag->loc);
-      delete diag;
-    }
-  }
-  delete tg;
+  delete unwrap(tg_ref);
 }
 
 void tableGenAddSourceFile(TableGenParserRef tg_ref, TableGenStringRef source) {
@@ -115,22 +91,6 @@ bool tableGenParse(TableGenParserRef tg_ref) {
 
 TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref) {
   return wrap(unwrap(tg_ref)->getRecordKeeper());
-}
-
-TableGenDiagnosticVectorRef
-tableGenGetAllDiagnostics(TableGenParserRef tg_ref) {
-  return wrap(new ctablegen::TableGenDiagnosticVector(unwrap(tg_ref)->getDiagnostics()));
-}
-
-TableGenDiagnosticRef tableGenDiagnosticVectorGet(TableGenDiagnosticVectorRef vec_ref, size_t index) {
-  auto *vec = unwrap(vec_ref);
-  if (index < vec->size())
-    return wrap(((*vec)[index]));
-  return nullptr;
-}
-
-void tableGenDiagnosticVectorFree(TableGenDiagnosticVectorRef vec_ref) {
-  delete unwrap(vec_ref);
 }
 
 // LLVM ListType

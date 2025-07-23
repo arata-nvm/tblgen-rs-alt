@@ -95,6 +95,7 @@
 //! this crate is not stable. Furthermore, the safe wrapper does not provide a
 //! stable interface either, since this crate is still in early development.
 
+pub mod diagnostic;
 pub mod error;
 pub mod init;
 /// TableGen records and record values.
@@ -119,26 +120,20 @@ use std::marker::PhantomData;
 use std::sync::Mutex;
 
 pub use error::Error;
-use error::SourceLocation;
 use error::TableGenError;
 pub use init::TypedInit;
-use raw::TableGenDiagKind;
-use raw::TableGenDiagnosticRef;
-use raw::TableGenDiagnosticVectorRef;
-use raw::tableGenDiagnosticVectorFree;
-use raw::tableGenDiagnosticVectorGet;
-use raw::tableGenGetAllDiagnostics;
 pub use record::Record;
 pub use record::RecordValue;
 pub use record_keeper::RecordKeeper;
 
 use raw::{
     TableGenParserRef, tableGenAddIncludeDirectory, tableGenAddSource, tableGenAddSourceFile,
-    tableGenFree, tableGenGet, tableGenParse,
+    tableGenFree, tableGenGet, tableGenGetDiagnostics, tableGenGetRecordKeeper, tableGenParse,
 };
 use string_ref::StringRef;
 
-use crate::raw::tableGenGetRecordKeeper;
+use crate::diagnostic::Diagnostic;
+use crate::diagnostic::DiagnosticIter;
 
 // TableGen only exposes `TableGenParseFile` in its API.
 // However, this function uses global state and therefore it is not thread safe.
@@ -221,30 +216,25 @@ impl<'s> TableGenParser<'s> {
     /// Due to limitations of TableGen, parsing TableGen is not thread-safe.
     /// In order to provide thread-safety, this method ensures that any
     /// concurrent parse operations are executed sequentially.
-    pub fn parse(self) -> Result<ParseResult<'s>, ParseResult<'s>> {
+    pub fn parse(self) -> ParseResult<'s> {
         unsafe {
             let guard = TABLEGEN_PARSE_LOCK.lock().unwrap();
 
             let result = tableGenParse(self.raw);
 
-            let raw_diagnostics = tableGenGetAllDiagnostics(self.raw);
+            let raw_diagnostics = tableGenGetDiagnostics(self.raw);
             let diagnostics = DiagnosticIter::from_raw_vector(raw_diagnostics).collect::<Vec<_>>();
 
             let raw_record_keeper = tableGenGetRecordKeeper(self.raw);
             let record_keeper = RecordKeeper::from_raw(raw_record_keeper, self);
 
-            let parse_result = ParseResult {
+            drop(guard);
+
+            ParseResult {
                 record_keeper,
                 diagnostics,
-            };
-            let parse_result = if result {
-                Ok(parse_result)
-            } else {
-                Err(parse_result)
-            };
-
-            drop(guard);
-            parse_result
+                success: result,
+            }
         }
     }
 }
@@ -260,8 +250,31 @@ impl Drop for TableGenParser<'_> {
 /// Result of parsing TableGen source files.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParseResult<'s> {
+    /// The record keeper containing all parsed TableGen records.
     pub record_keeper: RecordKeeper<'s>,
+    /// Diagnostics generated during parsing.
     pub diagnostics: Vec<Diagnostic<'s>>,
+    /// Whether parsing completed successfully (true) or encountered errors (false).
+    pub success: bool,
+}
+
+#[cfg(test)]
+impl ParseResult<'_> {
+    pub fn expect(self, msg: &str) -> Self {
+        if self.success {
+            self
+        } else {
+            panic!("{msg}");
+        }
+    }
+
+    pub fn expect_err(self, msg: &str) -> Self {
+        if !self.success {
+            self
+        } else {
+            panic!("{msg}");
+        }
+    }
 }
 
 /// Reference to TableGen source file.
@@ -270,92 +283,3 @@ pub struct ParseResult<'s> {
 /// [`RecordKeeper::source_info`](RecordKeeper::source_info).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceInfo<'a>(pub(crate) &'a TableGenParser<'a>);
-
-pub struct DiagnosticIter<'a> {
-    raw: TableGenDiagnosticVectorRef,
-    index: usize,
-    _reference: PhantomData<&'a ()>,
-}
-
-impl<'a> DiagnosticIter<'a> {
-    unsafe fn from_raw_vector(ptr: TableGenDiagnosticVectorRef) -> Self {
-        Self {
-            raw: ptr,
-            index: 0,
-            _reference: PhantomData,
-        }
-    }
-}
-
-impl<'a> Iterator for DiagnosticIter<'a> {
-    type Item = Diagnostic<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let next = unsafe { tableGenDiagnosticVectorGet(self.raw, self.index) };
-        self.index += 1;
-        if next.is_null() {
-            None
-        } else {
-            unsafe { Some(Diagnostic::from_raw(next)) }
-        }
-    }
-}
-
-impl<'a> Drop for DiagnosticIter<'a> {
-    fn drop(&mut self) {
-        unsafe { tableGenDiagnosticVectorFree(self.raw) }
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Diagnostic<'a> {
-    raw: TableGenDiagnosticRef,
-    _reference: PhantomData<&'a TableGenDiagnosticRef>,
-}
-
-impl<'a> Diagnostic<'a> {
-    pub unsafe fn from_raw(ptr: TableGenDiagnosticRef) -> Self {
-        Self {
-            raw: ptr,
-            _reference: PhantomData,
-        }
-    }
-
-    pub fn kind(&self) -> TableGenDiagKind::Type {
-        unsafe { *self.raw }.kind
-    }
-
-    pub fn message(&self) -> StringRef {
-        unsafe { StringRef::from_raw((*self.raw).message) }
-    }
-
-    pub fn loc(&self) -> SourceLocation {
-        unsafe { SourceLocation::from_raw((*self.raw).loc) }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::TableGenParser;
-
-    #[test]
-    fn on_parse_error() {
-        let res = TableGenParser::new()
-            .add_source(
-                r#"
-                class A;
-
-                invalid_token
-
-                class B;
-                "#,
-            )
-            .unwrap()
-            .parse()
-            .expect_err("invalid tablegen");
-
-        let rk = res.record_keeper;
-        assert!(rk.class("A").is_ok());
-        assert!(rk.class("B").is_err());
-    }
-}

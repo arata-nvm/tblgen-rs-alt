@@ -32,7 +32,7 @@ namespace ctablegen {
 
 typedef std::map<std::string, std::unique_ptr<Record>, std::less<>> RecordMap;
 typedef std::vector<const Record *> RecordVector;
-typedef std::vector<TableGenDiagnostic *> TableGenDiagnosticVector;
+typedef std::vector<std::unique_ptr<SMDiagnostic>> SMDiagnosticVector;
 typedef std::pair<std::string, TypedInit *> DagPair;
 
 class TableGenParser {
@@ -43,7 +43,7 @@ public:
   void addIncludeDirectory(const StringRef include);
   bool parse();
   RecordKeeper *getRecordKeeper() { return recordKeeper; }
-  std::vector<TableGenDiagnostic *> &getDiagnostics() { return diagnostics; }
+  SMDiagnosticVector &getDiagnostics() { return diagnostics; }
 
   SourceMgr sourceMgr;
 
@@ -52,7 +52,7 @@ private:
   std::vector<std::string> files;
 
   RecordKeeper *recordKeeper = nullptr;
-  std::vector<TableGenDiagnostic *> diagnostics;
+  SMDiagnosticVector diagnostics;
 };
 
 // Utility
@@ -107,8 +107,8 @@ DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<SMLoc>, TableGenSourceLocationRef);
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenFilePos, TableGenFilePosRef);
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenDiagnostic, TableGenDiagnosticRef);
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::TableGenDiagnosticVector, TableGenDiagnosticVectorRef);
-
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(SMDiagnostic, TableGenSMDiagnosticRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::SMDiagnosticVector,
+                                   TableGenSMDiagnosticVectorRef);
 
 #endif
