@@ -283,3 +283,29 @@ impl ParseResult<'_> {
 /// [`RecordKeeper::source_info`](RecordKeeper::source_info).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceInfo<'a>(pub(crate) &'a TableGenParser<'a>);
+
+#[cfg(test)]
+mod tests {
+    use crate::{TableGenParser, error::SourceLoc};
+
+    #[test]
+    fn add_by_file() {
+        let res = TableGenParser::new()
+            .add_source_file("testdata/bar.td")
+            .add_include_directory("testdata")
+            .parse()
+            .expect("valid tablegen");
+
+        let rk = res.record_keeper;
+
+        let foo = rk.class("Foo").expect("class Foo exists");
+        let foo_pos = foo.file_position(&rk).unwrap();
+        assert_eq!(foo_pos.filepath().as_str().unwrap(), "testdata/foo.td");
+        assert_eq!(foo_pos.pos(), 6);
+
+        let bar = rk.class("Bar").expect("class Bar exists");
+        let bar_pos = bar.file_position(&rk).unwrap();
+        assert_eq!(bar_pos.filepath().as_str().unwrap(), "testdata/bar.td");
+        assert_eq!(bar_pos.pos(), 24);
+    }
+}
