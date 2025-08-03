@@ -34,7 +34,8 @@
 //!         }
 //!         "#,
 //!     )?
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! if let Err(e) = keeper.def("A").unwrap().string_value("i") {
 //!     println!("{}", e);
 //!     // invalid conversion from Int to alloc::string::String

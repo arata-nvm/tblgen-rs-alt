@@ -45,7 +45,8 @@
 //!         def D: A;
 //!         "#,
 //!     )?
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! assert_eq!(keeper.classes().next().unwrap().0, Ok("A"));
 //! assert_eq!(keeper.defs().next().unwrap().0, Ok("D"));
 //! assert_eq!(keeper.all_derived_definitions("A").next().unwrap().name(), Ok("D"));
@@ -63,7 +64,8 @@
 //! let keeper: RecordKeeper = TableGenParser::new()
 //!     .add_source(r#"include "mlir/IR/OpBase.td""#)?
 //!     .add_include_directory(&format!("{}/include", std::env::var("TABLEGEN_200_PREFIX")?))
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -81,7 +83,8 @@
 //! let keeper: RecordKeeper = TableGenParser::new()
 //!     .add_source_file("mlir/IR/OpBase.td")
 //!     .add_include_directory(&format!("{}/include", std::env::var("TABLEGEN_200_PREFIX")?))
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
