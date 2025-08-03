@@ -63,7 +63,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 parse_library_name(path.file_name().unwrap().to_str().unwrap())?
             );
         } else {
-            println!("cargo:rustc-link-lib={}", flag);
+            println!("cargo:rustc-link-lib={flag}");
         }
     }
 
@@ -116,7 +116,7 @@ fn get_system_libcpp() -> Option<&'static str> {
 }
 
 fn llvm_config(argument: &str) -> Result<String, Box<dyn Error>> {
-    let prefix = env::var(format!("TABLEGEN_{}0_PREFIX", LLVM_MAJOR_VERSION))
+    let prefix = env::var(format!("TABLEGEN_{LLVM_MAJOR_VERSION}0_PREFIX"))
         .map(|path| Path::new(&path).join("bin"))
         .unwrap_or_default();
     let call = format!(
