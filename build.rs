@@ -16,8 +16,10 @@ const LLVM_MAJOR_VERSION: usize = if cfg!(feature = "llvm16-0") {
     18
 } else if cfg!(feature = "llvm19-0") {
     19
-} else {
+} else if cfg!(feature = "llvm20-0") {
     20
+} else {
+    21
 };
 
 fn main() {
@@ -98,7 +100,11 @@ fn build_c_library() -> Result<(), Box<dyn Error>> {
         )
         .include("cc/include")
         .include(llvm_config("--includedir")?)
-        .flag("-Werror")
+        .flag(if cfg!(target_env = "msvc") {
+            "/WX"
+        } else {
+            "-Werror"
+        })
         .std("c++17")
         .compile("CTableGen");
 

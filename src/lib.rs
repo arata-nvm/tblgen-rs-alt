@@ -22,9 +22,9 @@
 //! # Supported LLVM Versions
 //!
 //! An installation of LLVM is required to use this crate.
-//! The versions of LLVM currently supported are 16.x.x (default) and 17.x.x.
-//! Different LLVM version can be selected using features flags (llvm16-0 or
-//! llvm17-0).
+//! The versions of LLVM currently supported are 16.x.x, 17.x.x, 18.x.x,
+//! 19.x.x, 20.x.x, and 21.x.x. Different LLVM version can be selected using
+//! features flags (e.g., `llvm16-0` or `llvm17-0`).
 //!
 //! The `TABLEGEN_<version>_PREFIX` environment variable can be used to specify
 //! a custom directory of the LLVM installation.
@@ -35,7 +35,7 @@
 //! iterates over classes and defs defined in this file.
 //!
 //! ```rust
-//! use tblgen::{TableGenParser, RecordKeeper};
+//! use tblgen::{RecordKeeper, TableGenParser};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let keeper: RecordKeeper = TableGenParser::new()
@@ -49,7 +49,10 @@
 //!     .record_keeper;
 //! assert_eq!(keeper.classes().next().unwrap().0, Ok("A"));
 //! assert_eq!(keeper.defs().next().unwrap().0, Ok("D"));
-//! assert_eq!(keeper.all_derived_definitions("A").next().unwrap().name(), Ok("D"));
+//! assert_eq!(
+//!     keeper.all_derived_definitions("A").next().unwrap().name(),
+//!     Ok("D")
+//! );
 //! # Ok(())
 //! # }
 //! ```
@@ -57,15 +60,17 @@
 //! By adding include paths, external TableGen files can be included.
 //!
 //! ```rust
-//! use tblgen::{TableGenParser, RecordKeeper};
 //! use std::path::Path;
+//! use tblgen::{RecordKeeper, TableGenParser};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let keeper: RecordKeeper = TableGenParser::new()
 //!     .add_source(r#"include "mlir/IR/OpBase.td""#)?
-//!     .add_include_directory(&format!("{}/include", std::env::var("TABLEGEN_200_PREFIX")?))
-//!     .parse()
-//!     .record_keeper;
+//!     .add_include_directory(&format!(
+//!         "{}/include",
+//!         std::env::var("TABLEGEN_210_PREFIX")?
+//!     ))
+//!     .parse()?;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -76,15 +81,17 @@
 //! You can also pass an included filename directly.
 //!
 //! ```rust
-//! use tblgen::{TableGenParser, RecordKeeper};
 //! use std::path::Path;
+//! use tblgen::{RecordKeeper, TableGenParser};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let keeper: RecordKeeper = TableGenParser::new()
 //!     .add_source_file("mlir/IR/OpBase.td")
-//!     .add_include_directory(&format!("{}/include", std::env::var("TABLEGEN_200_PREFIX")?))
-//!     .parse()
-//!     .record_keeper;
+//!     .add_include_directory(&format!(
+//!         "{}/include",
+//!         std::env::var("TABLEGEN_210_PREFIX")?
+//!     ))
+//!     .parse()?;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -117,16 +124,16 @@ pub mod raw {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-use std::ffi::CStr;
-use std::ffi::CString;
-use std::marker::PhantomData;
-use std::sync::Mutex;
+use std::{
+    ffi::{CStr, CString},
+    marker::PhantomData,
+    sync::Mutex,
+};
 
 pub use error::Error;
 use error::TableGenError;
 pub use init::TypedInit;
-pub use record::Record;
-pub use record::RecordValue;
+pub use record::{Record, RecordValue};
 pub use record_keeper::RecordKeeper;
 
 use raw::{
@@ -210,7 +217,7 @@ impl<'s> TableGenParser<'s> {
         }
     }
 
-    pub fn source_info(&self) -> SourceInfo {
+    pub fn source_info(&self) -> SourceInfo<'_> {
         SourceInfo(self)
     }
 
