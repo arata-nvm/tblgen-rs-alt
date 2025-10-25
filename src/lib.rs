@@ -70,7 +70,8 @@
 //!         "{}/include",
 //!         std::env::var("TABLEGEN_210_PREFIX")?
 //!     ))
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -91,7 +92,8 @@
 //!         "{}/include",
 //!         std::env::var("TABLEGEN_210_PREFIX")?
 //!     ))
-//!     .parse()?;
+//!     .parse()
+//!     .record_keeper;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
