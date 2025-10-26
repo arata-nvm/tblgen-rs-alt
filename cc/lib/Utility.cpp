@@ -190,27 +190,32 @@ tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
   return wrap(new ArrayRef(*unwrap(loc_ref)));
 }
 
-TableGenBool tableGenConvertLoc(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenFilePosRef file_pos_ref) {
-    ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
-    SMLoc DefLoc = Loc.back();
-    if (!DefLoc.isValid()) return false;
+TableGenBool tableGenConvertLoc(TableGenParserRef ref,
+                                TableGenSourceLocationRef loc_ref,
+                                TableGenFilePosRef file_pos_ref) {
+  ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
+  SMLoc DefLoc = Loc.back();
+  if (!DefLoc.isValid())
+    return false;
 
-    auto &SrcMgr = unwrap(ref)->sourceMgr;
-    auto BufferID = SrcMgr.FindBufferContainingLoc(DefLoc);
-    if (!BufferID) return false;
-    auto &Buffer = SrcMgr.getBufferInfo(BufferID).Buffer;
+  auto &SrcMgr = unwrap(ref)->sourceMgr;
+  auto BufferID = SrcMgr.FindBufferContainingLoc(DefLoc);
+  if (!BufferID)
+    return false;
+  auto &Buffer = SrcMgr.getBufferInfo(BufferID).Buffer;
 
-    auto FileSpec = Buffer->getBufferIdentifier();
-    auto Filepath = TableGenStringRef{.data = FileSpec.data(), .len = FileSpec.size()};
+  auto FileSpec = Buffer->getBufferIdentifier();
+  auto Filepath =
+      TableGenStringRef{.data = FileSpec.data(), .len = FileSpec.size()};
 
-    const char *Ptr = DefLoc.getPointer();
-    const char *BufStart = Buffer->getBufferStart();
-    unsigned Pos = (unsigned)(Ptr - BufStart);
+  const char *Ptr = DefLoc.getPointer();
+  const char *BufStart = Buffer->getBufferStart();
+  unsigned Pos = (unsigned)(Ptr - BufStart);
 
-    auto FilePos = unwrap(file_pos_ref);
-    FilePos->filepath = Filepath;
-    FilePos->pos = Pos;
-    return true;
+  auto FilePos = unwrap(file_pos_ref);
+  FilePos->filepath = Filepath;
+  FilePos->pos = Pos;
+  return true;
 }
 
 void tableGenSourceLocationFree(TableGenSourceLocationRef loc_ref) {

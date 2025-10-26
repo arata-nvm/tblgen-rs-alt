@@ -15,9 +15,9 @@
 #include <cstddef>
 #include <cstdint>
 #else
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
 #endif
 
 #include "Types.h"
@@ -51,8 +51,8 @@ typedef struct TableGenStringRef {
 } TableGenStringRef;
 
 typedef struct TableGenFilePos {
-    TableGenStringRef filepath;
-    unsigned pos;
+  TableGenStringRef filepath;
+  unsigned pos;
 } TableGenFilePos;
 
 typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
@@ -71,11 +71,15 @@ bool tableGenParse(TableGenParserRef tg_ref);
 // LLVM SMDiagnostic
 TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref);
 TableGenSMDiagnosticVectorRef tableGenGetDiagnostics(TableGenParserRef tg_ref);
-TableGenSMDiagnosticRef tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref, size_t index);
+TableGenSMDiagnosticRef
+tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref,
+                              size_t index);
 
 TableGenDiagKind tableGenSMDiagnosticGetKind(TableGenSMDiagnosticRef diag_ref);
-TableGenStringRef tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref);
-TableGenStringRef tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef
+tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef
+tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref);
 int tableGenSMDiagnosticGetLineNo(TableGenSMDiagnosticRef diag_ref);
 int tableGenSMDiagnosticGetColumnNo(TableGenSMDiagnosticRef diag_ref);
 
@@ -190,7 +194,9 @@ TableGenBool tableGenPrintError(TableGenParserRef ref,
 TableGenSourceLocationRef tableGenSourceLocationNull();
 TableGenSourceLocationRef
 tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
-TableGenBool tableGenConvertLoc(TableGenParserRef ref, TableGenSourceLocationRef loc_ref, TableGenFilePosRef file_pos_ref);
+TableGenBool tableGenConvertLoc(TableGenParserRef ref,
+                                TableGenSourceLocationRef loc_ref,
+                                TableGenFilePosRef file_pos_ref);
 
 // Memory
 void tableGenSourceLocationFree(TableGenSourceLocationRef loc_ref);

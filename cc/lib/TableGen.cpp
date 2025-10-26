@@ -31,10 +31,13 @@ bool ctablegen::TableGenParser::parse() {
     }
   }
 
-  sourceMgr.setDiagHandler([](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
-    auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
-    ctx->diagnostics.push_back(std::move(std::make_unique<llvm::SMDiagnostic>(diag)));
-  }, &handlerContext);
+  sourceMgr.setDiagHandler(
+      [](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
+        auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
+        ctx->diagnostics.push_back(
+            std::move(std::make_unique<llvm::SMDiagnostic>(diag)));
+      },
+      &handlerContext);
 
   bool result = TableGenParseFile(sourceMgr, *recordKeeper);
 
@@ -67,9 +70,7 @@ TableGenParserRef tableGenGet() {
   return wrap(new ctablegen::TableGenParser());
 }
 
-void tableGenFree(TableGenParserRef tg_ref) {
-  delete unwrap(tg_ref);
-}
+void tableGenFree(TableGenParserRef tg_ref) { delete unwrap(tg_ref); }
 
 void tableGenAddSourceFile(TableGenParserRef tg_ref, TableGenStringRef source) {
   unwrap(tg_ref)->addSourceFile(StringRef(source.data, source.len));
@@ -85,9 +86,7 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
       StringRef(include.data, include.len));
 }
 
-bool tableGenParse(TableGenParserRef tg_ref) {
-  return unwrap(tg_ref)->parse();
-}
+bool tableGenParse(TableGenParserRef tg_ref) { return unwrap(tg_ref)->parse(); }
 
 TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref) {
   return wrap(unwrap(tg_ref)->getRecordKeeper());

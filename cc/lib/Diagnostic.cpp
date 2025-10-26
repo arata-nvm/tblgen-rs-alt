@@ -5,7 +5,9 @@ TableGenSMDiagnosticVectorRef tableGenGetDiagnostics(TableGenParserRef tg_ref) {
   return wrap(&unwrap(tg_ref)->getDiagnostics());
 }
 
-TableGenSMDiagnosticRef tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref, size_t index) {
+TableGenSMDiagnosticRef
+tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref,
+                              size_t index) {
   auto *vec = unwrap(vec_ref);
   if (index < vec->size())
     return wrap((*vec)[index].get());
@@ -16,12 +18,14 @@ TableGenDiagKind tableGenSMDiagnosticGetKind(TableGenSMDiagnosticRef diag_ref) {
   return static_cast<TableGenDiagKind>(unwrap(diag_ref)->getKind());
 }
 
-TableGenStringRef tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref) {
+TableGenStringRef
+tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref) {
   auto s = unwrap(diag_ref)->getMessage();
   return TableGenStringRef{.data = s.data(), .len = s.size()};
 }
 
-TableGenStringRef tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref) {
+TableGenStringRef
+tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref) {
   auto s = unwrap(diag_ref)->getFilename();
   return TableGenStringRef{.data = s.data(), .len = s.size()};
 }

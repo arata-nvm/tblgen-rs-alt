@@ -73,5 +73,5 @@ TableGenSourceLocationRef tableGenRecordValGetLoc(TableGenRecordValRef rv_ref) {
 }
 
 TableGenBool tableGenRecordValIsTemplateArg(TableGenRecordValRef rv_ref) {
-    return unwrap(rv_ref)->isTemplateArg();
+  return unwrap(rv_ref)->isTemplateArg();
 }
