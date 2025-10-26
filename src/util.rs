@@ -17,12 +17,16 @@ pub struct FilePos {
 
 impl FilePos {
     /// Creates a new [`FilePos`] from a raw [`TableGenFilePos`].
+    ///
+    /// # Safety
+    ///
+    /// The raw object must be valid.
     pub unsafe fn from_raw(raw: TableGenFilePos) -> Self {
         Self { raw }
     }
 
     /// Returns the filepath as a string reference.
-    pub fn filepath(&self) -> StringRef {
+    pub fn filepath(&self) -> StringRef<'_> {
         unsafe { StringRef::from_raw(self.raw.filepath) }
     }
 

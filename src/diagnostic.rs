@@ -65,12 +65,12 @@ impl<'a> Diagnostic<'a> {
     }
 
     /// Returns the diagnostic message.
-    pub fn message(&self) -> StringRef {
+    pub fn message(&self) -> StringRef<'_> {
         unsafe { StringRef::from_raw(tableGenSMDiagnosticGetMessage(self.raw)) }
     }
 
     /// Returns the filename where the diagnostic was generated.
-    pub fn filename(&self) -> StringRef {
+    pub fn filename(&self) -> StringRef<'_> {
         unsafe { StringRef::from_raw(tableGenSMDiagnosticGetFilename(self.raw)) }
     }
 
