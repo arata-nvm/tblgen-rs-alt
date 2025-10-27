@@ -71,9 +71,9 @@ use std::{
 use crate::{
     RecordKeeper, SourceInfo, TableGenParser,
     raw::{
-        TableGenDiagKind, TableGenFilePos, TableGenSourceLocationRef, tableGenConvertLoc,
-        tableGenPrintError, tableGenSourceLocationClone, tableGenSourceLocationFree,
-        tableGenSourceLocationNull,
+        TableGenDiagKind, TableGenFilePos, TableGenLocPosition, TableGenSourceLocationRef,
+        tableGenConvertLoc, tableGenPrintError, tableGenSourceLocationClone,
+        tableGenSourceLocationFree, tableGenSourceLocationNull,
     },
     string_ref::StringRef,
     util::{FilePos, print_string_callback},
@@ -273,11 +273,11 @@ pub trait SourceLoc: Sized {
     /// Returns the source location.
     fn source_location(self) -> SourceLocation;
 
-    /// Converts the source location to a file position using the given record keeper.
-    ///
-    /// This method uses the parser's source manager to convert a source location
-    /// to a file position with filepath and character offset.
     fn file_position(self, rk: &RecordKeeper) -> Option<FilePos> {
+        self.file_position_with_pos(rk, LocPosition::Instantiated)
+    }
+
+    fn file_position_with_pos(self, rk: &RecordKeeper, pos: LocPosition) -> Option<FilePos> {
         let parser = rk.source_info().0;
 
         let mut file_pos = MaybeUninit::<TableGenFilePos>::uninit();
@@ -286,6 +286,7 @@ pub trait SourceLoc: Sized {
                 parser.raw,
                 self.source_location().raw,
                 file_pos.as_mut_ptr(),
+                pos.to_raw(),
             )
         };
         if result == 0 {
@@ -301,6 +302,21 @@ pub trait SourceLoc: Sized {
 impl SourceLoc for SourceLocation {
     fn source_location(self) -> SourceLocation {
         self
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LocPosition {
+    Original,
+    Instantiated,
+}
+
+impl LocPosition {
+    pub(crate) fn to_raw(self) -> TableGenLocPosition::Type {
+        match self {
+            Self::Original => TableGenLocPosition::LOC_FRONT,
+            Self::Instantiated => TableGenLocPosition::LOC_BACK,
+        }
     }
 }
 

@@ -356,7 +356,7 @@ impl<'a> Iterator for RecordValueIter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::TableGenParser;
+    use crate::{TableGenParser, error::LocPosition};
 
     #[test]
     fn record() {
@@ -540,7 +540,13 @@ mod tests {
     #[test]
     fn direct_super_class() {
         let rk = TableGenParser::new()
-            .add_source(r#"class Foo1; class Foo2: Foo1; def foo: Foo2;"#)
+            .add_source(
+                r#"
+                class Foo1;
+                class Foo2: Foo1;
+                def foo: Foo2;
+                "#,
+            )
             .unwrap()
             .parse()
             .expect("valid tablegen")
@@ -552,5 +558,30 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(direct_super_classes.len(), 1);
         assert_eq!(direct_super_classes[0], "Foo2");
+    }
+
+    #[test]
+    fn source_location() {
+        let rk = TableGenParser::new()
+            .add_source(
+                r#"
+                multiclass Foo {
+                  def _bar;
+                }
+                defm foo: Foo;
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen")
+            .record_keeper;
+        let foo_bar = rk.def("foo_bar").expect("def foo_bar exists");
+        let original_pos = foo_bar
+            .file_position_with_pos(&rk, LocPosition::Original)
+            .expect("valid location");
+        let instantiated_pos = foo_bar
+            .file_position_with_pos(&rk, LocPosition::Instantiated)
+            .expect("valid location");
+        assert!(original_pos.pos() < instantiated_pos.pos());
     }
 }

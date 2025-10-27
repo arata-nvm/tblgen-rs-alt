@@ -192,9 +192,18 @@ tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
 
 TableGenBool tableGenConvertLoc(TableGenParserRef ref,
                                 TableGenSourceLocationRef loc_ref,
-                                TableGenFilePosRef file_pos_ref) {
+                                TableGenFilePosRef file_pos_ref,
+                                TableGenLocPosition pos) {
   ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
-  SMLoc DefLoc = Loc.back();
+  SMLoc DefLoc;
+  switch (pos) {
+  case LOC_FRONT:
+    DefLoc = Loc.front();
+    break;
+  case LOC_BACK:
+    DefLoc = Loc.back();
+    break;
+  }
   if (!DefLoc.isValid())
     return false;
 

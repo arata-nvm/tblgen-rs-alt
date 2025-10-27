@@ -34,6 +34,11 @@ typedef enum {
 } TableGenDiagKind;
 
 typedef enum {
+  LOC_FRONT,
+  LOC_BACK,
+} TableGenLocPosition;
+
+typedef enum {
   TableGenBitRecTyKind,
   TableGenBitsRecTyKind,
   TableGenCodeRecTyKind,
@@ -199,7 +204,8 @@ TableGenSourceLocationRef
 tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
 TableGenBool tableGenConvertLoc(TableGenParserRef ref,
                                 TableGenSourceLocationRef loc_ref,
-                                TableGenFilePosRef file_pos_ref);
+                                TableGenFilePosRef file_pos_ref,
+                                TableGenLocPosition pos);
 
 // Memory
 void tableGenSourceLocationFree(TableGenSourceLocationRef loc_ref);
