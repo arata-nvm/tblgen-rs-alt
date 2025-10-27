@@ -12,7 +12,8 @@ use paste::paste;
 use std::{ffi::c_void, marker::PhantomData};
 
 use crate::raw::{
-    TableGenRecordRef, TableGenRecordValRef, tableGenRecordGetFirstValue, tableGenRecordGetLoc,
+    TableGenRecordRef, TableGenRecordValRef, tableGenRecordGetDirectSuperClassAt,
+    tableGenRecordGetDirectSuperClassesSize, tableGenRecordGetFirstValue, tableGenRecordGetLoc,
     tableGenRecordGetName, tableGenRecordGetValue, tableGenRecordIsAnonymous,
     tableGenRecordIsSubclassOf, tableGenRecordPrint, tableGenRecordValGetLoc,
     tableGenRecordValGetNameInit, tableGenRecordValGetValue, tableGenRecordValIsTemplateArg,
@@ -189,6 +190,44 @@ impl<'a> Record<'a> {
     /// The iterator yields [`RecordValue`] structs
     pub fn values(self) -> RecordValueIter<'a> {
         RecordValueIter::new(self)
+    }
+
+    pub fn direct_super_classes(self) -> RecordIter<'a> {
+        RecordIter::new(self)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RecordIter<'a> {
+    record: TableGenRecordRef,
+    size: usize,
+    index: usize,
+    _reference: PhantomData<&'a TableGenRecordRef>,
+}
+
+impl<'a> RecordIter<'a> {
+    fn new(record: Record<'a>) -> RecordIter<'a> {
+        RecordIter {
+            record: record.raw,
+            size: unsafe { tableGenRecordGetDirectSuperClassesSize(record.raw) },
+            index: 0,
+            _reference: PhantomData,
+        }
+    }
+}
+
+impl<'a> Iterator for RecordIter<'a> {
+    type Item = Record<'a>;
+
+    fn next(&mut self) -> Option<Record<'a>> {
+        if self.index >= self.size {
+            return None;
+        }
+
+        let raw_record = unsafe { tableGenRecordGetDirectSuperClassAt(self.record, self.index) };
+        let res = unsafe { Record::from_raw(raw_record) };
+        self.index += 1;
+        Some(res)
     }
 }
 
@@ -496,5 +535,22 @@ mod tests {
             };
             assert_eq!(expect, v.is_template_arg());
         }
+    }
+
+    #[test]
+    fn direct_super_class() {
+        let rk = TableGenParser::new()
+            .add_source(r#"class Foo1; class Foo2: Foo1; def foo: Foo2;"#)
+            .unwrap()
+            .parse()
+            .expect("valid tablegen")
+            .record_keeper;
+        let foo = rk.def("foo").expect("def foo exists");
+        let direct_super_classes = foo
+            .direct_super_classes()
+            .filter_map(|class| class.name().ok())
+            .collect::<Vec<_>>();
+        assert_eq!(direct_super_classes.len(), 1);
+        assert_eq!(direct_super_classes[0], "Foo2");
     }
 }

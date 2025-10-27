@@ -132,6 +132,9 @@ void tableGenRecordPrint(TableGenRecordRef record_ref,
                          TableGenStringCallback callback, void *userData);
 void tableGenRecordDump(TableGenRecordRef record_ref);
 TableGenSourceLocationRef tableGenRecordGetLoc(TableGenRecordRef record_ref);
+size_t tableGenRecordGetDirectSuperClassesSize(TableGenRecordRef record_ref);
+TableGenRecordRef
+tableGenRecordGetDirectSuperClassAt(TableGenRecordRef record_ref, size_t i);
 
 // LLVM RecordVal
 TableGenStringRef tableGenRecordValGetName(TableGenRecordValRef rv_ref);
