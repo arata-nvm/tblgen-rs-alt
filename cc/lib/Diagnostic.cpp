@@ -21,13 +21,13 @@ TableGenDiagKind tableGenSMDiagnosticGetKind(TableGenSMDiagnosticRef diag_ref) {
 TableGenStringRef
 tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref) {
   auto s = unwrap(diag_ref)->getMessage();
-  return TableGenStringRef{.data = s.data(), .len = s.size()};
+  return TableGenStringRef{s.data(), s.size()};
 }
 
 TableGenStringRef
 tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref) {
   auto s = unwrap(diag_ref)->getFilename();
-  return TableGenStringRef{.data = s.data(), .len = s.size()};
+  return TableGenStringRef{s.data(), s.size()};
 }
 
 int tableGenSMDiagnosticGetLineNo(TableGenSMDiagnosticRef diag_ref) {
