@@ -144,7 +144,8 @@ fn llvm_config(argument: &str) -> Result<String, Box<dyn Error>> {
 
 fn parse_library_name(name: &str) -> Result<&str, String> {
     if cfg!(target_env = "msvc") {
-        Ok(name)
+        name.strip_suffix(".lib")
+            .ok_or_else(|| format!("failed to parse library name: {name}"))
     } else {
         name.strip_prefix("lib")
             .and_then(|name| name.split('.').next())
