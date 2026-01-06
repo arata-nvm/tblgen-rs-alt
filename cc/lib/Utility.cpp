@@ -214,8 +214,7 @@ TableGenBool tableGenConvertLoc(TableGenParserRef ref,
   auto &Buffer = SrcMgr.getBufferInfo(BufferID).Buffer;
 
   auto FileSpec = Buffer->getBufferIdentifier();
-  auto Filepath =
-      TableGenStringRef{FileSpec.data(), FileSpec.size()};
+  auto Filepath = TableGenStringRef{FileSpec.data(), FileSpec.size()};
 
   const char *Ptr = DefLoc.getPointer();
   const char *BufStart = Buffer->getBufferStart();
