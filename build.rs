@@ -3,8 +3,8 @@ use std::{
     error::Error,
     ffi::OsStr,
     fs::read_dir,
-    path::Path,
-    process::{Command, exit},
+    path::{Path, PathBuf},
+    process::{Command, Output, exit},
     str,
 };
 
@@ -30,8 +30,9 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
-    let version = llvm_config("--version")?;
+    let llvm_config_path = locate_llvm_config()?;
 
+    let version = llvm_config(&llvm_config_path, "--version")?;
     if !version.starts_with(&format!("{LLVM_MAJOR_VERSION}.")) {
         return Err(format!(
             "failed to find correct version ({LLVM_MAJOR_VERSION}.x.x) of llvm-config (found {version})",
@@ -41,32 +42,21 @@ fn run() -> Result<(), Box<dyn Error>> {
 
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=cc");
-    println!("cargo:rustc-link-search={}", llvm_config("--libdir")?);
 
-    build_c_library()?;
+    let libdir = llvm_config(&llvm_config_path, "--libdir")?;
+    println!("cargo:rustc-link-search={}", libdir);
 
-    for name in llvm_config("--libnames")?.trim().split(' ') {
+    build_c_library(&llvm_config_path)?;
+
+    for name in llvm_config(&llvm_config_path, "--libnames")?
+        .trim()
+        .split(' ')
+    {
         println!("cargo:rustc-link-lib=static={}", parse_library_name(name)?);
     }
 
-    for flag in llvm_config("--system-libs")?.trim().split(' ') {
-        let flag = flag.trim_start_matches("-l");
-
-        if flag.starts_with('/') {
-            // llvm-config returns absolute paths for dynamically linked libraries.
-            let path = Path::new(flag);
-
-            println!(
-                "cargo:rustc-link-search={}",
-                path.parent().unwrap().display()
-            );
-            println!(
-                "cargo:rustc-link-lib={}",
-                parse_library_name(path.file_name().unwrap().to_str().unwrap())?
-            );
-        } else {
-            println!("cargo:rustc-link-lib={flag}");
-        }
+    for name in get_system_libraries(&llvm_config_path)? {
+        println!("cargo:rustc-link-lib={}", name);
     }
 
     if let Some(name) = get_system_libcpp() {
@@ -76,7 +66,10 @@ fn run() -> Result<(), Box<dyn Error>> {
     bindgen::builder()
         .header("wrapper.h")
         .clang_arg("-Icc/include")
-        .clang_arg(format!("-I{}", llvm_config("--includedir")?))
+        .clang_arg(format!(
+            "-I{}",
+            llvm_config(&llvm_config_path, "--includedir")?
+        ))
         .default_enum_style(bindgen::EnumVariation::ModuleConsts)
         .parse_callbacks(Box::new(bindgen::CargoCallbacks::new()))
         .generate()?
@@ -85,9 +78,51 @@ fn run() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn build_c_library() -> Result<(), Box<dyn Error>> {
-    unsafe { env::set_var("CXXFLAGS", llvm_config("--cxxflags")?) };
-    unsafe { env::set_var("CFLAGS", llvm_config("--cflags")?) };
+fn locate_llvm_config() -> Result<PathBuf, Box<dyn Error>> {
+    if let Ok(prefix_path) = env::var(format!("TABLEGEN_{LLVM_MAJOR_VERSION}0_PREFIX")) {
+        let llvm_config = PathBuf::from(prefix_path).join("bin").join("llvm-config");
+        if llvm_config.exists() {
+            return Ok(llvm_config);
+        }
+    }
+
+    // Homebrew (macOS)
+    if cfg!(target_os = "macos") {
+        if let Some(prefix) = homebrew_prefix(&format!("llvm@{}", LLVM_MAJOR_VERSION)) {
+            let llvm_config = PathBuf::from(prefix).join("bin").join("llvm-config");
+            if llvm_config.exists() {
+                return Ok(llvm_config);
+            }
+        }
+
+        if let Some(prefix) = homebrew_prefix("llvm") {
+            let llvm_config = PathBuf::from(prefix).join("bin").join("llvm-config");
+            if llvm_config.exists() {
+                return Ok(llvm_config);
+            }
+        }
+    }
+
+    Ok(PathBuf::from("llvm-config"))
+}
+
+fn homebrew_prefix(name: &str) -> Option<String> {
+    let output = Command::new("brew").arg("--prefix").arg(name).output();
+
+    output
+        .ok()
+        .filter(|o| !o.stdout.is_empty())
+        .and_then(|out| String::from_utf8(out.stdout).ok())
+        .map(|val| val.trim().to_string())
+}
+
+fn build_c_library(llvm_config_path: &Path) -> Result<(), Box<dyn Error>> {
+    let cxxflags = llvm_config(llvm_config_path, "--cxxflags")?;
+    let cflags = llvm_config(llvm_config_path, "--cflags")?;
+    let includedir = llvm_config(llvm_config_path, "--includedir")?;
+
+    unsafe { env::set_var("CXXFLAGS", cxxflags) };
+    unsafe { env::set_var("CFLAGS", cflags) };
 
     cc::Build::new()
         .cpp(true)
@@ -99,7 +134,7 @@ fn build_c_library() -> Result<(), Box<dyn Error>> {
                 .filter(|path| path.is_file() && path.extension() == Some(OsStr::new("cpp"))),
         )
         .include("cc/include")
-        .include(llvm_config("--includedir")?)
+        .include(&includedir)
         .flag(if cfg!(target_env = "msvc") {
             "/WX"
         } else {
@@ -121,34 +156,89 @@ fn get_system_libcpp() -> Option<&'static str> {
     }
 }
 
-fn llvm_config(argument: &str) -> Result<String, Box<dyn Error>> {
-    let prefix = env::var(format!("TABLEGEN_{LLVM_MAJOR_VERSION}0_PREFIX"))
-        .map(|path| Path::new(&path).join("bin"))
-        .unwrap_or_default();
-    let call = format!(
-        "{} --link-static {argument}",
-        prefix.join("llvm-config").display()
-    );
+fn get_system_libraries(llvm_config_path: &Path) -> Result<Vec<String>, Box<dyn Error>> {
+    let output = llvm_config(llvm_config_path, "--system-libs")?;
 
-    Ok(str::from_utf8(
-        &if cfg!(target_os = "windows") {
-            Command::new("cmd").args(["/C", &call]).output()?
-        } else {
-            Command::new("sh").arg("-c").arg(&call).output()?
-        }
-        .stdout,
-    )?
-    .trim()
-    .to_string())
+    let libraries: Vec<String> = output
+        .split(&[' ', '\n'] as &[char])
+        .filter(|s| !s.is_empty())
+        .filter_map(|flag| {
+            if cfg!(target_env = "msvc") {
+                // MSVC: foo.lib
+                flag.strip_suffix(".lib").map(|s| s.to_string())
+            } else if let Some(lib) = flag.strip_prefix("-l") {
+                // Unix linker flags: -lfoo
+                if cfg!(target_os = "macos") {
+                    // Handle .tbd (text-based stub) files on macOS
+                    if let Some(lib) = lib.strip_prefix("lib").and_then(|s| s.strip_suffix(".tbd"))
+                    {
+                        return Some(lib.to_string());
+                    }
+                }
+
+                // Handle versioned shared libraries like -lz.so.7.0
+                if let Some(i) = lib.find(".so.") {
+                    return Some(lib[..i].to_string());
+                }
+
+                Some(lib.to_string())
+            } else if flag.starts_with('/') {
+                let path = Path::new(flag);
+                if let Some(parent) = path.parent() {
+                    println!("cargo:rustc-link-search={}", parent.display());
+                }
+
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| {
+                        if let Some((stem, _)) = name.rsplit_once(".a") {
+                            stem.strip_prefix("lib")
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(libraries)
 }
 
-fn parse_library_name(name: &str) -> Result<&str, String> {
-    if cfg!(target_env = "msvc") {
-        name.strip_suffix(".lib")
-            .ok_or_else(|| format!("failed to parse library name: {name}"))
-    } else {
-        name.strip_prefix("lib")
-            .and_then(|name| name.split('.').next())
-            .ok_or_else(|| format!("failed to parse library name: {name}"))
+fn llvm_config(llvm_config_path: &Path, argument: &str) -> Result<String, Box<dyn Error>> {
+    let Output {
+        status,
+        stdout,
+        stderr,
+    } = Command::new(llvm_config_path)
+        .arg(argument)
+        .arg("--link-static")
+        .output()?;
+
+    if !status.success() {
+        return Err(format!(
+            "llvm-config failed with status: {}\nstderr: {}",
+            status,
+            str::from_utf8(&stderr)?,
+        )
+        .into());
     }
+
+    Ok(str::from_utf8(&stdout)?.trim().to_string())
+}
+
+fn parse_library_name(name: &str) -> Result<String, Box<dyn Error>> {
+    // Linux / macOS
+    if let Some(name) = name.strip_prefix("lib").and_then(|n| n.strip_suffix(".a")) {
+        return Ok(name.to_string());
+    }
+
+    // Windows
+    if let Some(name) = name.strip_suffix(".lib") {
+        return Ok(name.to_string());
+    }
+
+    Err(format!("failed to parse library name: {name}").into())
 }
