@@ -105,7 +105,7 @@ fn build_c_library() -> Result<(), Box<dyn Error>> {
         } else {
             "-Werror"
         })
-        .std("c++17")
+        .std("c++20")
         .compile("CTableGen");
 
     Ok(())
