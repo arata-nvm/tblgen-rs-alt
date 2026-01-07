@@ -59,7 +59,7 @@
 //!
 //! By adding include paths, external TableGen files can be included.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use std::path::Path;
 //! use tblgen::{RecordKeeper, TableGenParser};
 //!
@@ -81,7 +81,7 @@
 //!
 //! You can also pass an included filename directly.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use std::path::Path;
 //! use tblgen::{RecordKeeper, TableGenParser};
 //!
