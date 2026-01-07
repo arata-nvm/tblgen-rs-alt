@@ -72,10 +72,6 @@ void tableGenRecordPrint(TableGenRecordRef record_ref,
   stream << *unwrap(record_ref);
 }
 
-void tableGenRecordDump(TableGenRecordRef record_ref) {
-  unwrap(record_ref)->dump();
-}
-
 size_t tableGenRecordGetDirectSuperClassesSize(TableGenRecordRef record_ref) {
   return unwrap(record_ref)->getDirectSuperClasses().size();
 }

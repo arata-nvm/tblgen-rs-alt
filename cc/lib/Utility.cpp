@@ -149,8 +149,6 @@ void tableGenInitPrint(TableGenTypedInitRef ti, TableGenStringCallback callback,
   stream << *unwrap(ti);
 }
 
-void tableGenInitDump(TableGenTypedInitRef ti) { unwrap(ti)->dump(); }
-
 TableGenBool tableGenPrintError(TableGenParserRef ref,
                                 TableGenSourceLocationRef loc_ref,
                                 TableGenDiagKind dk, TableGenStringRef message,
