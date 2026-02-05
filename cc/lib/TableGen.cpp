@@ -168,6 +168,6 @@ TableGenStringRef tableGenDagRecordArgName(TableGenTypedInitRef rv_ref,
 // Memory
 void tableGenBitArrayFree(int8_t bit_array[]) { delete[] bit_array; }
 
-void tableGenStringFree(const char *str) { delete str; }
+void tableGenStringFree(const char *str) { delete[] str; }
 
-void tableGenStringArrayFree(const char **str_array) { delete str_array; }
+void tableGenStringArrayFree(const char **str_array) { delete[] str_array; }
