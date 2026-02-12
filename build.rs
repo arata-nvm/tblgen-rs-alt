@@ -86,7 +86,7 @@ fn locate_llvm_config() -> Result<PathBuf, Box<dyn Error>> {
     };
 
     if let Ok(prefix_path) = env::var(format!("TABLEGEN_{LLVM_MAJOR_VERSION}0_PREFIX")) {
-        let llvm_config = PathBuf::from(prefix_path).join("bin").join(&bin_name);
+        let llvm_config = PathBuf::from(prefix_path).join("bin").join(bin_name);
         if llvm_config.exists() {
             return Ok(llvm_config);
         }
@@ -95,14 +95,14 @@ fn locate_llvm_config() -> Result<PathBuf, Box<dyn Error>> {
     // Homebrew (macOS)
     if cfg!(target_os = "macos") {
         if let Some(prefix) = homebrew_prefix(&format!("llvm@{}", LLVM_MAJOR_VERSION)) {
-            let llvm_config = PathBuf::from(prefix).join("bin").join(&bin_name);
+            let llvm_config = PathBuf::from(prefix).join("bin").join(bin_name);
             if llvm_config.exists() {
                 return Ok(llvm_config);
             }
         }
 
         if let Some(prefix) = homebrew_prefix("llvm") {
-            let llvm_config = PathBuf::from(prefix).join("bin").join(&bin_name);
+            let llvm_config = PathBuf::from(prefix).join("bin").join(bin_name);
             if llvm_config.exists() {
                 return Ok(llvm_config);
             }
