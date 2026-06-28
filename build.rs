@@ -3,7 +3,7 @@ use std::{
     error::Error,
     ffi::OsStr,
     fs::read_dir,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Command, exit},
     str,
 };
@@ -32,6 +32,11 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    println!(
+        "cargo:rerun-if-env-changed=TABLEGEN_{}0_PREFIX",
+        LLVM_MAJOR_VERSION
+    );
+
     let version = llvm_config(false, "--version")?;
 
     if !version.starts_with(&format!("{LLVM_MAJOR_VERSION}.")) {
@@ -216,10 +221,45 @@ fn resolve_link_mode() -> Result<bool, Box<dyn Error>> {
     }
 }
 
+fn llvm_config_bin_dir() -> PathBuf {
+    if let Ok(prefix) = env::var(format!("TABLEGEN_{}0_PREFIX", LLVM_MAJOR_VERSION)) {
+        return PathBuf::from(prefix).join("bin");
+    }
+
+    if cfg!(target_os = "macos") {
+        for formula in [format!("llvm@{LLVM_MAJOR_VERSION}"), "llvm".to_string()] {
+            if let Some(prefix) = homebrew_prefix(&formula) {
+                let bin_dir = prefix.join("bin");
+                if bin_dir.join("llvm-config").exists() {
+                    return bin_dir;
+                }
+            }
+        }
+    }
+
+    PathBuf::new()
+}
+
+fn homebrew_prefix(name: &str) -> Option<PathBuf> {
+    let output = Command::new("brew")
+        .args(["--prefix", name])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let prefix = str::from_utf8(&output.stdout).ok()?.trim();
+    if prefix.is_empty() {
+        None
+    } else {
+        Some(PathBuf::from(prefix))
+    }
+}
+
 fn llvm_config(link_static: bool, argument: &str) -> Result<String, Box<dyn Error>> {
-    let prefix = env::var(format!("TABLEGEN_{}0_PREFIX", LLVM_MAJOR_VERSION))
-        .map(|path| Path::new(&path).join("bin"))
-        .unwrap_or_default();
+    let prefix = llvm_config_bin_dir();
     let static_flag = if link_static { "--link-static " } else { "" };
     let call = format!(
         "{} {static_flag}{argument}",
