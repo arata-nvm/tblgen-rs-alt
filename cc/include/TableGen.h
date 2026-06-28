@@ -33,6 +33,11 @@ typedef enum {
 } TableGenDiagKind;
 
 typedef enum {
+  TABLEGEN_SOURCE_LOCATION_PRIMARY,
+  TABLEGEN_SOURCE_LOCATION_INSTANTIATION,
+} TableGenSourceLocationPosition;
+
+typedef enum {
   TableGenBitRecTyKind,
   TableGenBitsRecTyKind,
   TableGenCodeRecTyKind,
@@ -49,6 +54,11 @@ typedef struct TableGenStringRef {
   size_t len;
 } TableGenStringRef;
 
+typedef struct TableGenFilePosition {
+  TableGenStringRef filename;
+  unsigned offset;
+} TableGenFilePosition;
+
 typedef void (*TableGenStringCallback)(TableGenStringRef, void *);
 
 TableGenParserRef tableGenGet();
@@ -61,6 +71,21 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
 /// NOTE: TableGen currently relies on global state within a given parser
 ///       invocation, so this function is not thread-safe.
 TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref);
+TableGenRecordKeeperRef tableGenParseWithDiagnostics(TableGenParserRef tg_ref,
+                                                     TableGenBool *success);
+
+// LLVM SMDiagnostic
+TableGenSMDiagnosticVectorRef tableGenGetDiagnostics(TableGenParserRef tg_ref);
+TableGenSMDiagnosticRef
+tableGenSMDiagnosticVectorGet(TableGenSMDiagnosticVectorRef vec_ref,
+                              size_t index);
+TableGenDiagKind tableGenSMDiagnosticGetKind(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef
+tableGenSMDiagnosticGetMessage(TableGenSMDiagnosticRef diag_ref);
+TableGenStringRef
+tableGenSMDiagnosticGetFilename(TableGenSMDiagnosticRef diag_ref);
+int tableGenSMDiagnosticGetLineNo(TableGenSMDiagnosticRef diag_ref);
+int tableGenSMDiagnosticGetColumnNo(TableGenSMDiagnosticRef diag_ref);
 
 // LLVM RecordKeeper
 void tableGenRecordKeeperFree(TableGenRecordKeeperRef rk_ref);
@@ -180,6 +205,11 @@ TableGenBool tableGenPrintError(TableGenParserRef ref,
 TableGenSourceLocationRef tableGenSourceLocationNull();
 TableGenSourceLocationRef
 tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref);
+TableGenBool
+tableGenSourceLocationGetFilePosition(TableGenParserRef ref,
+                                      TableGenSourceLocationRef loc_ref,
+                                      TableGenFilePositionRef file_pos_ref,
+                                      TableGenSourceLocationPosition pos);
 
 // VarBitInit support (variable bit references in BitsInit fields)
 TableGenBool tableGenBitInitIsVarBit(TableGenTypedInitRef ti);

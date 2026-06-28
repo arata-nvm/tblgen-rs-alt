@@ -62,6 +62,7 @@ use std::{
     convert::Infallible,
     ffi::{NulError, c_void},
     fmt::{self, Display, Formatter},
+    mem::MaybeUninit,
     str::Utf8Error,
     string::FromUtf8Error,
 };
@@ -69,8 +70,10 @@ use std::{
 use crate::{
     SourceInfo, TableGenParser,
     raw::{
-        TableGenDiagKind::TABLEGEN_DK_ERROR, TableGenSourceLocationRef, tableGenPrintError,
-        tableGenSourceLocationClone, tableGenSourceLocationFree, tableGenSourceLocationNull,
+        TableGenDiagKind::TABLEGEN_DK_ERROR, TableGenFilePosition, TableGenSourceLocationPosition,
+        TableGenSourceLocationRef, tableGenPrintError, tableGenSourceLocationClone,
+        tableGenSourceLocationFree, tableGenSourceLocationGetFilePosition,
+        tableGenSourceLocationNull,
     },
     string_ref::StringRef,
     util::print_string_callback,
@@ -132,6 +135,36 @@ impl SourceLocation {
                 raw: tableGenSourceLocationNull(),
             }
         }
+    }
+
+    /// Returns the file and byte offset represented by this source location.
+    pub fn file_position(
+        &self,
+        source_info: SourceInfo<'_>,
+        position: SourceLocationPosition,
+    ) -> Option<FilePosition> {
+        let mut file_position = MaybeUninit::<TableGenFilePosition>::uninit();
+        let result = unsafe {
+            tableGenSourceLocationGetFilePosition(
+                source_info.0.raw,
+                self.raw,
+                file_position.as_mut_ptr(),
+                position.to_raw(),
+            )
+        };
+        if result == 0 {
+            return None;
+        }
+
+        let file_position = unsafe { file_position.assume_init() };
+        let filename = unsafe { StringRef::from_raw(file_position.filename) }
+            .as_str()
+            .ok()?
+            .to_owned();
+        Some(FilePosition {
+            filename,
+            offset: file_position.offset,
+        })
     }
 }
 
@@ -277,5 +310,69 @@ impl SourceLoc for SourceLocation {
     }
 }
 
+/// Which entry to use from a TableGen source location stack.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceLocationPosition {
+    /// The primary location reported by LLVM.
+    Primary,
+    /// The instantiation location, useful for expanded multiclass records.
+    Instantiation,
+}
+
+impl SourceLocationPosition {
+    pub(crate) fn to_raw(self) -> TableGenSourceLocationPosition::Type {
+        match self {
+            Self::Primary => TableGenSourceLocationPosition::TABLEGEN_SOURCE_LOCATION_PRIMARY,
+            Self::Instantiation => {
+                TableGenSourceLocationPosition::TABLEGEN_SOURCE_LOCATION_INSTANTIATION
+            }
+        }
+    }
+}
+
+/// A source file and byte offset resolved from a TableGen source location.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilePosition {
+    filename: String,
+    offset: u32,
+}
+
+impl FilePosition {
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    pub fn offset(&self) -> u32 {
+        self.offset
+    }
+}
+
 /// Main error type.
 pub type Error = SourceError<TableGenError>;
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        TableGenParser,
+        error::{SourceLoc, SourceLocationPosition},
+    };
+
+    #[test]
+    fn source_location_file_position() {
+        let source = "class A;\ndef B: A;";
+        let record_keeper = TableGenParser::new()
+            .add_source(source)
+            .unwrap()
+            .parse()
+            .unwrap();
+
+        let record = record_keeper.def("B").unwrap();
+        let position = record
+            .source_location()
+            .file_position(record_keeper.source_info(), SourceLocationPosition::Primary)
+            .unwrap();
+
+        assert_eq!(position.filename(), "");
+        assert_eq!(position.offset(), source.find("B").unwrap() as u32);
+    }
+}

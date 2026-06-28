@@ -215,6 +215,44 @@ tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
   return wrap(new std::vector<SMLoc>(*unwrap(loc_ref)));
 }
 
+TableGenBool
+tableGenSourceLocationGetFilePosition(TableGenParserRef ref,
+                                      TableGenSourceLocationRef loc_ref,
+                                      TableGenFilePositionRef file_pos_ref,
+                                      TableGenSourceLocationPosition pos) {
+  ArrayRef<SMLoc> locs(*unwrap(loc_ref));
+  if (locs.empty())
+    return false;
+
+  size_t index;
+  switch (pos) {
+  case TABLEGEN_SOURCE_LOCATION_PRIMARY:
+    index = 0;
+    break;
+  case TABLEGEN_SOURCE_LOCATION_INSTANTIATION:
+    index = locs.size() - 1;
+    break;
+  }
+
+  SMLoc loc = locs[index];
+  if (!loc.isValid())
+    return false;
+
+  auto &sourceMgr = unwrap(ref)->sourceMgr;
+  auto bufferId = sourceMgr.FindBufferContainingLoc(loc);
+  if (!bufferId)
+    return false;
+
+  auto &buffer = sourceMgr.getBufferInfo(bufferId).Buffer;
+  auto filename = buffer->getBufferIdentifier();
+  auto *filePosition = unwrap(file_pos_ref);
+  filePosition->filename =
+      TableGenStringRef{.data = filename.data(), .len = filename.size()};
+  filePosition->offset =
+      static_cast<unsigned>(loc.getPointer() - buffer->getBufferStart());
+  return true;
+}
+
 void tableGenSourceLocationFree(TableGenSourceLocationRef loc_ref) {
   delete unwrap(loc_ref);
 }

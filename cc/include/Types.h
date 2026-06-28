@@ -34,6 +34,10 @@ typedef struct TableGenTypedInit *TableGenTypedInitRef;
 typedef struct TableGenDagPair *TableGenDagPairRef;
 
 typedef struct TableGenSourceLocation *TableGenSourceLocationRef;
+typedef struct TableGenFilePosition *TableGenFilePositionRef;
+
+typedef struct TableGenSMDiagnostic *TableGenSMDiagnosticRef;
+typedef struct TableGenSMDiagnosticVector *TableGenSMDiagnosticVectorRef;
 
 #ifdef __cplusplus
 }

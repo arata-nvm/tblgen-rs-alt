@@ -104,6 +104,7 @@
 //! this crate is not stable. Furthermore, the safe wrapper does not provide a
 //! stable interface either, since this crate is still in early development.
 
+pub mod diagnostic;
 pub mod error;
 pub mod init;
 /// TableGen records and record values.
@@ -134,9 +135,10 @@ pub use init::TypedInit;
 pub use record::{Record, RecordValue};
 pub use record_keeper::RecordKeeper;
 
+use diagnostic::{Diagnostic, DiagnosticIter};
 use raw::{
     TableGenParserRef, tableGenAddIncludeDirectory, tableGenAddSource, tableGenAddSourceFile,
-    tableGenFree, tableGenGet, tableGenParse,
+    tableGenFree, tableGenGet, tableGenGetDiagnostics, tableGenParse, tableGenParseWithDiagnostics,
 };
 use string_ref::StringRef;
 
@@ -234,6 +236,35 @@ impl<'s> TableGenParser<'s> {
             res
         }
     }
+
+    /// Parses the TableGen source files and returns a [`ParseResult`].
+    ///
+    /// Unlike [`TableGenParser::parse`], this method keeps the partially parsed
+    /// [`RecordKeeper`] and collected diagnostics even when parsing fails.
+    ///
+    /// Due to limitations of TableGen, parsing TableGen is not thread-safe.
+    /// In order to provide thread-safety, this method ensures that any
+    /// concurrent parse operations are executed sequentially.
+    pub fn parse_with_diagnostics(self) -> ParseResult<'s> {
+        unsafe {
+            let guard = TABLEGEN_PARSE_LOCK.lock().unwrap();
+            let mut success = 0;
+            let raw_record_keeper = tableGenParseWithDiagnostics(self.raw, &mut success);
+
+            let raw_diagnostics = tableGenGetDiagnostics(self.raw);
+            let diagnostics = DiagnosticIter::from_raw_vector(raw_diagnostics).collect::<Vec<_>>();
+
+            let record_keeper = RecordKeeper::from_raw(raw_record_keeper, self);
+
+            drop(guard);
+
+            ParseResult {
+                record_keeper,
+                diagnostics,
+                success: success != 0,
+            }
+        }
+    }
 }
 
 impl Drop for TableGenParser<'_> {
@@ -250,3 +281,14 @@ impl Drop for TableGenParser<'_> {
 /// [`RecordKeeper::source_info`](RecordKeeper::source_info).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceInfo<'a>(pub(crate) &'a TableGenParser<'a>);
+
+/// Result of parsing TableGen source files with diagnostics.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseResult<'s> {
+    /// The record keeper containing all parsed TableGen records.
+    pub record_keeper: RecordKeeper<'s>,
+    /// Diagnostics generated during parsing.
+    pub diagnostics: Vec<Diagnostic<'s>>,
+    /// Whether parsing completed successfully.
+    pub success: bool,
+}

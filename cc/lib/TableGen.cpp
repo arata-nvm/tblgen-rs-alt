@@ -17,22 +17,52 @@ using namespace llvm;
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
 
-RecordKeeper *ctablegen::TableGenParser::parse() {
-  auto recordKeeper = std::unique_ptr<RecordKeeper>(new RecordKeeper);
+bool ctablegen::TableGenParser::parseInto(RecordKeeper &recordKeeper,
+                                          SMDiagnosticVector *diagnostics) {
   sourceMgr.setIncludeDirs(includeDirs);
+
+  struct DiagHandlerContext {
+    SMDiagnosticVector *diagnostics;
+  } handlerContext{diagnostics};
 
   for (const auto &file : files) {
     std::string full_path;
     if (!sourceMgr.AddIncludeFile(file, SMLoc(), full_path)) {
-      return nullptr;
+      return false;
     }
   }
 
-  bool result = TableGenParseFile(sourceMgr, *recordKeeper);
-  if (!result) {
+  if (diagnostics) {
+    diagnostics->clear();
+    sourceMgr.setDiagHandler(
+        [](const SMDiagnostic &diag, void *rawHandlerContext) {
+          auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
+          ctx->diagnostics->push_back(std::make_unique<SMDiagnostic>(diag));
+        },
+        &handlerContext);
+  }
+
+  bool result = TableGenParseFile(sourceMgr, recordKeeper);
+
+  if (diagnostics) {
+    sourceMgr.setDiagHandler(nullptr);
+  }
+
+  return !result;
+}
+
+RecordKeeper *ctablegen::TableGenParser::parse() {
+  auto recordKeeper = std::make_unique<RecordKeeper>();
+  if (parseInto(*recordKeeper, nullptr)) {
     return recordKeeper.release();
   }
   return nullptr;
+}
+
+RecordKeeper *ctablegen::TableGenParser::parseWithDiagnostics(bool &success) {
+  auto recordKeeper = std::make_unique<RecordKeeper>();
+  success = parseInto(*recordKeeper, &diagnostics);
+  return recordKeeper.release();
 }
 
 void ctablegen::TableGenParser::addIncludeDirectory(const StringRef include) {
@@ -77,6 +107,15 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
 
 TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref) {
   return wrap(unwrap(tg_ref)->parse());
+}
+
+TableGenRecordKeeperRef tableGenParseWithDiagnostics(TableGenParserRef tg_ref,
+                                                     TableGenBool *success) {
+  bool parseSuccess = false;
+  auto *recordKeeper = unwrap(tg_ref)->parseWithDiagnostics(parseSuccess);
+  if (success)
+    *success = parseSuccess;
+  return wrap(recordKeeper);
 }
 
 // LLVM ListType
