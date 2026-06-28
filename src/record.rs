@@ -12,17 +12,29 @@ use paste::paste;
 use std::{ffi::c_void, marker::PhantomData};
 
 use crate::raw::{
-    TableGenRecordRef, TableGenRecordValRef, tableGenRecordGetDirectSuperClassAt,
-    tableGenRecordGetDirectSuperClassesSize, tableGenRecordGetFirstValue, tableGenRecordGetLoc,
-    tableGenRecordGetName, tableGenRecordGetValue, tableGenRecordIsAnonymous,
-    tableGenRecordIsSubclassOf, tableGenRecordPrint, tableGenRecordValGetLoc,
-    tableGenRecordValGetNameInit, tableGenRecordValGetValue, tableGenRecordValIsTemplateArg,
-    tableGenRecordValNext, tableGenRecordValPrint,
+    TableGenRecTyKind::TableGenInvalidRecTyKind as RawInvalidRecTyKind, TableGenRecordRef,
+    TableGenRecordValRef, tableGenIntArrayFree, tableGenRecordDump, tableGenRecordGetDefInit,
+    tableGenRecordGetFieldType, tableGenRecordGetFirstValue, tableGenRecordGetID,
+    tableGenRecordGetLoc, tableGenRecordGetName, tableGenRecordGetNameInit,
+    tableGenRecordGetNumSuperClasses, tableGenRecordGetNumTemplateArgs,
+    tableGenRecordGetSuperClass, tableGenRecordGetTemplateArgName, tableGenRecordGetValue,
+    tableGenRecordGetValueAsBit, tableGenRecordGetValueAsBitsInit, tableGenRecordGetValueAsDag,
+    tableGenRecordGetValueAsDef, tableGenRecordGetValueAsInt, tableGenRecordGetValueAsListInit,
+    tableGenRecordGetValueAsListOfDefs, tableGenRecordGetValueAsListOfInts,
+    tableGenRecordGetValueAsListOfStrings, tableGenRecordGetValueAsOptionalDef,
+    tableGenRecordGetValueAsOptionalString, tableGenRecordGetValueAsString,
+    tableGenRecordHasDirectSuperClass, tableGenRecordIsAnonymous, tableGenRecordIsClass,
+    tableGenRecordIsSubclassOf, tableGenRecordIsValueUnset, tableGenRecordPrint,
+    tableGenRecordRecTyGetClass, tableGenRecordRecTyGetNumClasses, tableGenRecordRecTyIsSubClassOf,
+    tableGenRecordValDump, tableGenRecordValGetBitsWidth, tableGenRecordValGetListElementType,
+    tableGenRecordValGetLoc, tableGenRecordValGetNameInit, tableGenRecordValGetValue,
+    tableGenRecordValIsNonconcreteOK, tableGenRecordValIsTemplateArg, tableGenRecordValNext,
+    tableGenRecordValPrint, tableGenStringRefArrayFree,
 };
 
 use crate::{
     error::{Error, SourceLoc, SourceLocation, TableGenError, WithLocation},
-    init::{BitInit, DagInit, ListInit, StringInit, TypedInit},
+    init::{BitInit, BitsInit, DagInit, DefInit, ListInit, StringInit, TypedInit},
     string_ref::StringRef,
     util::print_callback,
 };
@@ -63,6 +75,12 @@ impl Debug for Record<'_> {
     }
 }
 
+impl std::hash::Hash for Record<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
 macro_rules! record_value {
     ($(#[$attr:meta])* $name:ident, $type:ty) => {
         paste! {
@@ -100,22 +118,10 @@ impl<'a> Record<'a> {
     }
 
     record_value!(
-        /// Returns the boolean value of the field with the given name if this
-        /// field is of type [`BitInit`](crate::init::BitInit).
-        bit,
-        bool
-    );
-    record_value!(
         /// Returns the field with the given name converted to a [`Vec<bool>`]
         /// if this field is of type [`BitsInit`](crate::init::BitsInit).
         bits,
         Vec<bool>
-    );
-    record_value!(
-        /// Returns the integer value of the field with the given name if this
-        /// field is of type [`IntInit`](crate::init::IntInit).
-        int,
-        i64
     );
     record_value!(
         /// Returns the field with the given name converted to a [`String`]
@@ -138,30 +144,6 @@ impl<'a> Record<'a> {
         /// Note that this copies the string into a new string.
         string,
         String
-    );
-    record_value!(
-        /// Returns the field with the given name converted to a [`&str`]
-        /// if this field is of type [`StringInit`](crate::init::StringInit).
-        str,
-        &'a str
-    );
-    record_value!(
-        /// Returns the field with the given name converted to a [`Record`]
-        /// if this field is of type [`DefInit`](crate::init::DefInit).
-        def,
-        Record<'a>
-    );
-    record_value!(
-        /// Returns the field with the given name converted to a [`ListInit`]
-        /// if this field is of type [`ListInit`].
-        list,
-        ListInit<'a>
-    );
-    record_value!(
-        /// Returns the field with the given name converted to a [`DagInit`]
-        /// if this field is of type [`DagInit`].
-        dag,
-        DagInit<'a>
     );
 
     /// Returns a [`RecordValue`] for the field with the given name.
@@ -192,42 +174,311 @@ impl<'a> Record<'a> {
         RecordValueIter::new(self)
     }
 
-    pub fn direct_super_classes(self) -> RecordIter<'a> {
-        RecordIter::new(self)
+    /// Returns `true` if the record has a field with the given name.
+    pub fn has_field(self, name: &str) -> bool {
+        let v = unsafe { tableGenRecordGetValue(self.raw, StringRef::from(name).to_raw()) };
+        !v.is_null()
     }
-}
 
-#[derive(Debug, Clone)]
-pub struct RecordIter<'a> {
-    record: TableGenRecordRef,
-    size: usize,
-    index: usize,
-    _reference: PhantomData<&'a TableGenRecordRef>,
-}
+    /// Returns the [`TableGenRecTyKind`](crate::raw::TableGenRecTyKind) of the
+    /// field with the given name, or `None` if the field does not exist.
+    pub fn field_type(self, name: &str) -> Option<crate::raw::TableGenRecTyKind::Type> {
+        use crate::raw::TableGenRecTyKind::TableGenInvalidRecTyKind;
+        let kind = unsafe { tableGenRecordGetFieldType(self.raw, StringRef::from(name).to_raw()) };
+        if kind == TableGenInvalidRecTyKind {
+            None
+        } else {
+            Some(kind)
+        }
+    }
 
-impl<'a> RecordIter<'a> {
-    fn new(record: Record<'a>) -> RecordIter<'a> {
-        RecordIter {
-            record: record.raw,
-            size: unsafe { tableGenRecordGetDirectSuperClassesSize(record.raw) },
+    /// Dumps the record to stderr (for debugging).
+    pub fn dump(self) {
+        unsafe { tableGenRecordDump(self.raw) }
+    }
+
+    /// Returns the number of template arguments.
+    pub fn num_template_args(self) -> usize {
+        unsafe { tableGenRecordGetNumTemplateArgs(self.raw) }
+    }
+
+    /// Returns the template argument name at the given index.
+    pub fn template_arg_name(self, index: usize) -> Option<&'a str> {
+        unsafe { StringRef::from_option_raw(tableGenRecordGetTemplateArgName(self.raw, index)) }
+            .and_then(|s| s.try_into().ok())
+    }
+
+    /// Returns an iterator over the template argument names.
+    pub fn template_args(self) -> TemplateArgIter<'a> {
+        let back = self.num_template_args();
+        TemplateArgIter {
+            record: self,
             index: 0,
-            _reference: PhantomData,
+            back,
         }
     }
-}
 
-impl<'a> Iterator for RecordIter<'a> {
-    type Item = Record<'a>;
+    /// Returns the number of direct super classes.
+    pub fn num_super_classes(self) -> usize {
+        unsafe { tableGenRecordGetNumSuperClasses(self.raw) }
+    }
 
-    fn next(&mut self) -> Option<Record<'a>> {
-        if self.index >= self.size {
-            return None;
+    /// Returns the super class at the given index.
+    pub fn super_class(self, index: usize) -> Option<Record<'a>> {
+        let ptr = unsafe { tableGenRecordGetSuperClass(self.raw, index) };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Record::from_raw(ptr) })
         }
+    }
 
-        let raw_record = unsafe { tableGenRecordGetDirectSuperClassAt(self.record, self.index) };
-        let res = unsafe { Record::from_raw(raw_record) };
-        self.index += 1;
-        Some(res)
+    /// Returns an iterator over the direct super classes.
+    pub fn direct_super_classes(self) -> SuperClassIter<'a> {
+        let back = self.num_super_classes();
+        SuperClassIter {
+            record: self,
+            index: 0,
+            back,
+        }
+    }
+
+    /// Returns the integer value of the field with the given name.
+    pub fn int_value(self, name: &str) -> Result<i64, Error> {
+        let mut out: i64 = 0;
+        let ok = unsafe {
+            tableGenRecordGetValueAsInt(self.raw, StringRef::from(name).to_raw(), &mut out)
+        };
+        if ok > 0 {
+            Ok(out)
+        } else {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        }
+    }
+
+    /// Returns the string value of the field with the given name as a `&str`.
+    pub fn str_value(self, name: &str) -> Result<&'a str, Error> {
+        let raw =
+            unsafe { tableGenRecordGetValueAsString(self.raw, StringRef::from(name).to_raw()) };
+        if raw.data.is_null() {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        } else {
+            unsafe { StringRef::from_raw(raw) }
+                .try_into()
+                .map_err(TableGenError::from)
+                .map_err(|e| e.with_location(self))
+        }
+    }
+
+    /// Returns the bit (boolean) value of the field with the given name.
+    pub fn bit_value(self, name: &str) -> Result<bool, Error> {
+        let mut out: i8 = 0;
+        let ok = unsafe {
+            tableGenRecordGetValueAsBit(self.raw, StringRef::from(name).to_raw(), &mut out)
+        };
+        if ok > 0 {
+            Ok(out != 0)
+        } else {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        }
+    }
+
+    /// Returns the def value of the field with the given name as a [`Record`].
+    pub fn def_value(self, name: &str) -> Result<Record<'a>, Error> {
+        let ptr = unsafe { tableGenRecordGetValueAsDef(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        } else {
+            Ok(unsafe { Record::from_raw(ptr) })
+        }
+    }
+
+    /// Returns the dag value of the field with the given name.
+    pub fn dag_value(self, name: &str) -> Result<DagInit<'a>, Error> {
+        let ptr = unsafe { tableGenRecordGetValueAsDag(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        } else {
+            Ok(unsafe { DagInit::from_raw(ptr) })
+        }
+    }
+
+    /// Returns the bits init of the field with the given name.
+    pub fn bits_init_value(self, name: &str) -> Result<BitsInit<'a>, Error> {
+        let ptr =
+            unsafe { tableGenRecordGetValueAsBitsInit(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        } else {
+            Ok(unsafe { BitsInit::from_raw(ptr) })
+        }
+    }
+
+    /// Returns the list init of the field with the given name.
+    pub fn list_init_value(self, name: &str) -> Result<ListInit<'a>, Error> {
+        let ptr =
+            unsafe { tableGenRecordGetValueAsListInit(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            Err(TableGenError::MissingValue(name.into()).with_location(self))
+        } else {
+            Ok(unsafe { ListInit::from_raw(ptr) })
+        }
+    }
+
+    /// Returns the list-of-defs value of the field with the given name.
+    pub fn list_of_defs_value(self, name: &str) -> Result<Vec<Record<'a>>, Error> {
+        let ptr =
+            unsafe { tableGenRecordGetValueAsListOfDefs(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            return Err(TableGenError::MissingValue(name.into()).with_location(self));
+        }
+        let len = unsafe { crate::raw::tableGenRecordVectorSize(ptr) };
+        let mut result = Vec::with_capacity(len);
+        for i in 0..len {
+            let rec = unsafe { crate::raw::tableGenRecordVectorGet(ptr, i) };
+            result.push(unsafe { Record::from_raw(rec) });
+        }
+        unsafe { crate::raw::tableGenRecordVectorFree(ptr) };
+        Ok(result)
+    }
+
+    /// Returns the list-of-ints value of the field with the given name.
+    pub fn list_of_ints_value(self, name: &str) -> Result<Vec<i64>, Error> {
+        let mut arr = std::ptr::null_mut();
+        let mut len: usize = 0;
+        let ok = unsafe {
+            tableGenRecordGetValueAsListOfInts(
+                self.raw,
+                StringRef::from(name).to_raw(),
+                &mut arr,
+                &mut len,
+            )
+        };
+        if ok == 0 {
+            return Err(TableGenError::MissingValue(name.into()).with_location(self));
+        }
+        let result = unsafe { std::slice::from_raw_parts(arr, len) }.to_vec();
+        unsafe { tableGenIntArrayFree(arr) };
+        Ok(result)
+    }
+
+    /// Returns the list-of-strings value of the field with the given name.
+    pub fn list_of_strings_value(self, name: &str) -> Result<Vec<&'a str>, Error> {
+        let mut arr = std::ptr::null_mut();
+        let mut len: usize = 0;
+        let ok = unsafe {
+            tableGenRecordGetValueAsListOfStrings(
+                self.raw,
+                StringRef::from(name).to_raw(),
+                &mut arr,
+                &mut len,
+            )
+        };
+        if ok == 0 {
+            return Err(TableGenError::MissingValue(name.into()).with_location(self));
+        }
+        let raw_refs = unsafe { std::slice::from_raw_parts(arr, len) };
+        let mut result = Vec::with_capacity(len);
+        for raw_ref in raw_refs {
+            let s: &'a str = unsafe { StringRef::from_raw(*raw_ref) }
+                .try_into()
+                .map_err(TableGenError::from)
+                .map_err(|e| e.with_location(self))?;
+            result.push(s);
+        }
+        unsafe { tableGenStringRefArrayFree(arr) };
+        Ok(result)
+    }
+
+    /// Returns the optional string value of the field, or `None` if unset.
+    ///
+    /// Returns `Err` if the field does not exist or is not a string/unset.
+    pub fn optional_str_value(self, name: &str) -> Result<Option<&'a str>, Error> {
+        let mut out = crate::raw::TableGenStringRef {
+            data: std::ptr::null(),
+            len: 0,
+        };
+        let ok = unsafe {
+            tableGenRecordGetValueAsOptionalString(
+                self.raw,
+                StringRef::from(name).to_raw(),
+                &mut out,
+            )
+        };
+        if ok == 0 {
+            return Err(TableGenError::MissingValue(name.into()).with_location(self));
+        }
+        if out.data.is_null() {
+            Ok(None)
+        } else {
+            let s: &'a str = unsafe { StringRef::from_raw(out) }
+                .try_into()
+                .map_err(TableGenError::from)
+                .map_err(|e| e.with_location(self))?;
+            Ok(Some(s))
+        }
+    }
+
+    /// Returns the optional def value of the field, or `None` if unset.
+    pub fn optional_def_value(self, name: &str) -> Option<Record<'a>> {
+        let ptr = unsafe {
+            tableGenRecordGetValueAsOptionalDef(self.raw, StringRef::from(name).to_raw())
+        };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Record::from_raw(ptr) })
+        }
+    }
+
+    /// Returns true if the named field exists and has an unset value (`?`).
+    pub fn is_value_unset(self, name: &str) -> bool {
+        unsafe { tableGenRecordIsValueUnset(self.raw, StringRef::from(name).to_raw()) > 0 }
+    }
+
+    /// Returns true if this record is a class definition (not a def).
+    pub fn is_class(self) -> bool {
+        unsafe { tableGenRecordIsClass(self.raw) > 0 }
+    }
+
+    /// Returns the [`DefInit`] for this record.
+    pub fn def_init(self) -> DefInit<'a> {
+        unsafe { DefInit::from_raw(tableGenRecordGetDefInit(self.raw)) }
+    }
+
+    /// Returns the unique numeric ID of this record.
+    pub fn id(self) -> u32 {
+        unsafe { tableGenRecordGetID(self.raw) }
+    }
+
+    /// Returns the name as a raw [`TypedInit`].
+    pub fn name_init(self) -> TypedInit<'a> {
+        unsafe { TypedInit::from_raw(tableGenRecordGetNameInit(self.raw)) }
+    }
+
+    /// Returns true if the given record is a direct superclass of this record.
+    pub fn has_direct_super_class(self, super_class: Record<'a>) -> bool {
+        unsafe { tableGenRecordHasDirectSuperClass(self.raw, super_class.raw) > 0 }
+    }
+
+    /// Returns the number of classes in this record's type.
+    pub fn num_type_classes(self) -> usize {
+        unsafe { tableGenRecordRecTyGetNumClasses(self.raw) }
+    }
+
+    /// Returns the class at the given index in this record's type.
+    pub fn type_class(self, index: usize) -> Option<Record<'a>> {
+        let ptr = unsafe { tableGenRecordRecTyGetClass(self.raw, index) };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { Record::from_raw(ptr) })
+        }
+    }
+
+    /// Returns true if this record's type is a subclass of the given class.
+    pub fn type_is_subclass_of(self, class: Record<'a>) -> bool {
+        unsafe { tableGenRecordRecTyIsSubClassOf(self.raw, class.raw) > 0 }
     }
 }
 
@@ -292,6 +543,12 @@ impl Display for RecordValue<'_> {
     }
 }
 
+impl std::hash::Hash for RecordValue<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw.hash(state);
+    }
+}
+
 impl RecordValue<'_> {
     /// Creates a record from a raw object.
     ///
@@ -309,8 +566,35 @@ impl RecordValue<'_> {
         }
     }
 
-    pub fn is_template_arg(&self) -> bool {
-        unsafe { tableGenRecordValIsTemplateArg(self.raw) != 0 }
+    /// Dumps this record value to stderr (for debugging).
+    pub fn dump(self) {
+        unsafe { tableGenRecordValDump(self.raw) }
+    }
+
+    /// Returns true if this field is a template argument.
+    pub fn is_template_arg(self) -> bool {
+        unsafe { tableGenRecordValIsTemplateArg(self.raw) > 0 }
+    }
+
+    /// Returns true if nonconcrete values are allowed for this field.
+    pub fn is_nonconcrete_ok(self) -> bool {
+        unsafe { tableGenRecordValIsNonconcreteOK(self.raw) > 0 }
+    }
+
+    /// If this field is bits-typed, returns the bit width.
+    pub fn bits_width(self) -> Option<usize> {
+        let w = unsafe { tableGenRecordValGetBitsWidth(self.raw) };
+        if w == 0 { None } else { Some(w) }
+    }
+
+    /// If this field is list-typed, returns the element type kind.
+    pub fn list_element_type(self) -> Option<crate::raw::TableGenRecTyKind::Type> {
+        let k = unsafe { tableGenRecordValGetListElementType(self.raw) };
+        if k == RawInvalidRecTyKind {
+            None
+        } else {
+            Some(k)
+        }
     }
 }
 
@@ -320,6 +604,7 @@ impl SourceLoc for RecordValue<'_> {
     }
 }
 
+/// Iterator over the fields of a [`Record`].
 #[derive(Debug, Clone)]
 pub struct RecordValueIter<'a> {
     record: TableGenRecordRef,
@@ -343,20 +628,113 @@ impl<'a> Iterator for RecordValueIter<'a> {
     type Item = RecordValue<'a>;
 
     fn next(&mut self) -> Option<RecordValue<'a>> {
-        let res = if self.current.is_null() {
-            None
-        } else {
-            unsafe { Some(RecordValue::from_raw(self.current)) }
-        };
+        if self.current.is_null() {
+            return None;
+        }
+        let res = unsafe { RecordValue::from_raw(self.current) };
         self.current = unsafe { tableGenRecordValNext(self.record, self.current) };
-        res
+        Some(res)
     }
 }
+
+impl std::iter::FusedIterator for RecordValueIter<'_> {}
+
+/// Iterator over the template argument names of a [`Record`].
+#[derive(Debug, Clone)]
+pub struct TemplateArgIter<'a> {
+    record: Record<'a>,
+    index: usize,
+    back: usize,
+}
+
+impl<'a> Iterator for TemplateArgIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.back {
+            return None;
+        }
+        let name = self.record.template_arg_name(self.index);
+        self.index += 1;
+        name
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back.saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> DoubleEndedIterator for TemplateArgIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.back {
+            return None;
+        }
+        self.back -= 1;
+        match self.record.template_arg_name(self.back) {
+            Some(name) => Some(name),
+            None => {
+                self.back += 1;
+                None
+            }
+        }
+    }
+}
+
+impl ExactSizeIterator for TemplateArgIter<'_> {}
+
+impl std::iter::FusedIterator for TemplateArgIter<'_> {}
+
+/// Iterator over the direct super classes of a [`Record`].
+#[derive(Debug, Clone)]
+pub struct SuperClassIter<'a> {
+    record: Record<'a>,
+    index: usize,
+    back: usize,
+}
+
+impl<'a> Iterator for SuperClassIter<'a> {
+    type Item = Record<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.back {
+            return None;
+        }
+        let class = self.record.super_class(self.index);
+        self.index += 1;
+        class
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back.saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> DoubleEndedIterator for SuperClassIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.back {
+            return None;
+        }
+        self.back -= 1;
+        match self.record.super_class(self.back) {
+            Some(class) => Some(class),
+            None => {
+                self.back += 1;
+                None
+            }
+        }
+    }
+}
+
+impl ExactSizeIterator for SuperClassIter<'_> {}
+
+impl std::iter::FusedIterator for SuperClassIter<'_> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TableGenParser, error::LocPosition};
+    use crate::TableGenParser;
 
     #[test]
     fn record() {
@@ -374,8 +752,7 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         let d2 = rk.def("D2").expect("D2 exists");
         assert!(d2.subclass_of("A"));
         assert!(d2.subclass_of("B"));
@@ -403,8 +780,7 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         let a = rk.def("A").expect("def A exists");
         assert_eq!(a.name(), Ok("A"));
         assert_eq!(a.int_value("size"), Ok(42));
@@ -414,7 +790,10 @@ mod tests {
                     assert!(v.name.to_str() == Ok("size"));
                     v.init.as_int().map_err(|e| e.set_location(v))
                 })
-                .map(|i| i.into()),
+                .and_then(|i| {
+                    i64::try_from(i)
+                        .map_err(|e| e.with_location(crate::error::SourceLocation::none()))
+                }),
             Ok(42)
         );
     }
@@ -432,8 +811,7 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         let a = rk.def("A").expect("def A exists");
         let values = a.values();
         assert_eq!(values.clone().count(), 2);
@@ -441,7 +819,7 @@ mod tests {
             match v.init {
                 TypedInit::Int(i) => {
                     assert_eq!(v.name.to_str(), Ok("a"));
-                    assert_eq!(i64::from(i), 5);
+                    assert_eq!(i64::try_from(i).unwrap(), 5);
                 }
                 TypedInit::String(i) => {
                     assert_eq!(v.name.to_str(), Ok("n"));
@@ -450,6 +828,21 @@ mod tests {
                 _ => panic!("unexpected type"),
             }
         }
+    }
+
+    #[test]
+    fn empty_record_values() {
+        let rk = TableGenParser::new()
+            .add_source("def Empty;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let r = rk.def("Empty").expect("def Empty exists");
+        assert_eq!(r.values().count(), 0);
+        // Calling next() on an already-exhausted iterator must not invoke UB.
+        let mut iter = r.values();
+        assert!(iter.next().is_none());
+        assert!(iter.next().is_none());
     }
 
     #[test]
@@ -465,19 +858,34 @@ mod tests {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         let a = rk.def("A").expect("def A exists");
         if let Err(e) = a.string_value("a") {
             // With source info
+            let msg = format!("{}", e.clone().add_source_info(rk.source_info()));
+            let msg = msg.trim();
+            // LLVM 22+ changed PrintMessage formatting for in-memory buffers.
+            #[cfg(any(
+                feature = "llvm16-0",
+                feature = "llvm17-0",
+                feature = "llvm18-0",
+                feature = "llvm19-0",
+                feature = "llvm20-0",
+                feature = "llvm21-0"
+            ))]
             assert_eq!(
-                format!("{}", e.clone().add_source_info(rk.source_info())).trim(),
+                msg,
                 r#"
                   error: invalid conversion from Int to alloc::string::String
                     int a = test;
                         ^
                 "#
                 .trim()
+            );
+            #[cfg(feature = "llvm22-0")]
+            assert!(
+                msg.contains("error: invalid conversion from Int to alloc::string::String"),
+                "unexpected error message: {msg}"
             );
 
             // Without source info
@@ -495,8 +903,7 @@ mod tests {
                 .add_source("def A;")
                 .unwrap()
                 .parse()
-                .expect("valid tablegen")
-                .record_keeper;
+                .expect("valid tablegen");
             assert_eq!(
                 format!("{}", e.add_source_info(rk.source_info())).trim(),
                 "invalid conversion from Int to alloc::string::String\nfailed to print source information: invalid source location"
@@ -508,80 +915,188 @@ mod tests {
     }
 
     #[test]
-    fn is_template_arg() {
+    fn has_field() {
         let rk = TableGenParser::new()
-            .add_source(
-                r#"
-                class A<int a, int c> {
-                    int b = 5;
-                    int c = 6;
-                }
-                "#,
-            )
+            .add_source("def A { int x = 1; }")
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
-        let a = rk.class("A").expect("class A exists");
-        let values = a.values();
-        for v in values {
-            print!("{v}");
-            let expect = match v.name.to_str() {
-                Ok("A:a") => true,
-                Ok("A:c") => true,
-                Ok("b") => false,
-                Ok("c") => false,
-                _ => panic!("unexpected value name"),
-            };
-            assert_eq!(expect, v.is_template_arg());
-        }
+            .expect("valid tablegen");
+        let a = rk.def("A").expect("def A exists");
+        assert!(a.has_field("x"));
+        assert!(!a.has_field("y"));
     }
 
     #[test]
-    fn direct_super_class() {
+    fn field_type() {
+        use crate::raw::TableGenRecTyKind::{
+            TableGenBitRecTyKind, TableGenIntRecTyKind, TableGenStringRecTyKind,
+        };
+        let rk = TableGenParser::new()
+            .add_source("def A { int i = 1; string s = \"hi\"; bit b = 1; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let a = rk.def("A").expect("def A exists");
+        assert_eq!(a.field_type("i"), Some(TableGenIntRecTyKind));
+        assert_eq!(a.field_type("s"), Some(TableGenStringRecTyKind));
+        assert_eq!(a.field_type("b"), Some(TableGenBitRecTyKind));
+        assert_eq!(a.field_type("nonexistent"), None);
+    }
+
+    #[test]
+    fn template_args() {
+        let rk = TableGenParser::new()
+            .add_source("class Foo<int x, string y>;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let foo = rk.class("Foo").expect("class Foo exists");
+        assert_eq!(foo.num_template_args(), 2);
+        assert_eq!(foo.template_arg_name(0), Some("Foo:x"));
+        assert_eq!(foo.template_arg_name(1), Some("Foo:y"));
+        assert_eq!(foo.template_arg_name(2), None);
+        let names: Vec<_> = foo.template_args().collect();
+        assert_eq!(names, vec!["Foo:x", "Foo:y"]);
+        // Double-ended
+        let mut iter = foo.template_args();
+        assert_eq!(iter.next_back(), Some("Foo:y"));
+        assert_eq!(iter.next(), Some("Foo:x"));
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn template_args_on_def() {
+        let rk = TableGenParser::new()
+            .add_source("class A; def D: A;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let d = rk.def("D").expect("def D exists");
+        assert_eq!(d.num_template_args(), 0);
+        assert_eq!(d.template_arg_name(0), None);
+        assert_eq!(d.template_args().count(), 0);
+    }
+
+    #[test]
+    fn template_args_no_params() {
+        let rk = TableGenParser::new()
+            .add_source("class Foo;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let foo = rk.class("Foo").expect("class Foo exists");
+        assert_eq!(foo.num_template_args(), 0);
+        assert_eq!(foo.template_args().count(), 0);
+        let mut iter = foo.template_args();
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn template_args_len_tracks() {
+        let rk = TableGenParser::new()
+            .add_source("class Foo<int a, int b, int c>;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let foo = rk.class("Foo").expect("class Foo exists");
+        let mut iter = foo.template_args();
+        assert_eq!(iter.len(), 3);
+        iter.next();
+        assert_eq!(iter.len(), 2);
+        iter.next_back();
+        assert_eq!(iter.len(), 1);
+        iter.next();
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn super_classes() {
         let rk = TableGenParser::new()
             .add_source(
                 r#"
-                class Foo1;
-                class Foo2: Foo1;
-                def foo: Foo2;
+                class A;
+                class B;
+                class C;
+                def D: A, B, C;
                 "#,
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
-        let foo = rk.def("foo").expect("def foo exists");
-        let direct_super_classes = foo
+            .expect("valid tablegen");
+        let d = rk.def("D").expect("def D exists");
+        assert_eq!(d.num_super_classes(), 3);
+        assert_eq!(d.super_class(0).unwrap().name().unwrap(), "A");
+        assert_eq!(d.super_class(1).unwrap().name().unwrap(), "B");
+        assert_eq!(d.super_class(2).unwrap().name().unwrap(), "C");
+        assert!(d.super_class(3).is_none());
+        let names: Vec<_> = d
             .direct_super_classes()
-            .filter_map(|class| class.name().ok())
-            .collect::<Vec<_>>();
-        assert_eq!(direct_super_classes.len(), 1);
-        assert_eq!(direct_super_classes[0], "Foo2");
+            .map(|r| r.name().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["A", "B", "C"]);
+        // Double-ended
+        let mut iter = d.direct_super_classes();
+        assert_eq!(iter.next_back().unwrap().name().unwrap(), "C");
+        assert_eq!(iter.next().unwrap().name().unwrap(), "A");
+        assert_eq!(iter.next().unwrap().name().unwrap(), "B");
+        assert!(iter.next().is_none());
     }
 
     #[test]
-    fn source_location() {
+    fn super_classes_on_class() {
         let rk = TableGenParser::new()
-            .add_source(
-                r#"
-                multiclass Foo {
-                  def _bar;
-                }
-                defm foo: Foo;
-                "#,
-            )
+            .add_source("class A; class B: A; class C: A, B;")
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
-        let foo_bar = rk.def("foo_bar").expect("def foo_bar exists");
-        let original_pos = foo_bar
-            .file_position_with_pos(&rk, LocPosition::Original)
-            .expect("valid location");
-        let instantiated_pos = foo_bar
-            .file_position_with_pos(&rk, LocPosition::Instantiated)
-            .expect("valid location");
-        assert!(original_pos.pos() < instantiated_pos.pos());
+            .expect("valid tablegen");
+        let b = rk.class("B").expect("class B exists");
+        assert_eq!(b.num_super_classes(), 1);
+        assert_eq!(b.super_class(0).unwrap().name().unwrap(), "A");
+        let c = rk.class("C").expect("class C exists");
+        assert_eq!(c.num_super_classes(), 2);
+        let names: Vec<_> = c
+            .direct_super_classes()
+            .map(|r| r.name().unwrap().to_string())
+            .collect();
+        assert_eq!(names, vec!["A", "B"]);
+    }
+
+    #[test]
+    fn super_classes_empty() {
+        let rk = TableGenParser::new()
+            .add_source("def D;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let d = rk.def("D").expect("def D exists");
+        assert_eq!(d.num_super_classes(), 0);
+        assert!(d.super_class(0).is_none());
+        assert_eq!(d.direct_super_classes().count(), 0);
+        let mut iter = d.direct_super_classes();
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn super_classes_len_tracks() {
+        let rk = TableGenParser::new()
+            .add_source("class A; class B; class C; def D: A, B, C;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let d = rk.def("D").expect("def D exists");
+        let mut iter = d.direct_super_classes();
+        assert_eq!(iter.len(), 3);
+        iter.next();
+        assert_eq!(iter.len(), 2);
+        iter.next_back();
+        assert_eq!(iter.len(), 1);
+        iter.next();
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
     }
 }

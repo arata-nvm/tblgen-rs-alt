@@ -15,13 +15,17 @@
 //! [`TryInto`]. Most conversions are cheap, except for conversion to
 //! [`String`].
 
+#[cfg(feature = "llvm22-0")]
+use crate::raw::tableGenBitsInitConvertKnownBitsToInt;
 use crate::{
     raw::{
-        TableGenRecTyKind, TableGenTypedInitRef, tableGenBitInitGetValue,
+        TableGenRecTyKind, TableGenTypedInitRef, tableGenBitInitGetValue, tableGenBitInitIsVarBit,
         tableGenBitsInitGetBitInit, tableGenBitsInitGetNumBits, tableGenDagRecordArgName,
-        tableGenDagRecordGet, tableGenDagRecordNumArgs, tableGenDagRecordOperator,
-        tableGenDefInitGetValue, tableGenInitPrint, tableGenInitRecType, tableGenIntInitGetValue,
+        tableGenDagRecordGet, tableGenDagRecordGetArgNo, tableGenDagRecordNumArgs,
+        tableGenDagRecordOperator, tableGenDefInitGetValue, tableGenInitDump, tableGenInitPrint,
+        tableGenInitRecType, tableGenIntInitGetValue, tableGenListInitGetElementType,
         tableGenListRecordGet, tableGenListRecordNumElements, tableGenStringInitGetValue,
+        tableGenVarBitInitGetBitNum, tableGenVarBitInitGetVarName,
     },
     string_ref::StringRef,
     util::print_callback,
@@ -103,6 +107,23 @@ impl Debug for TypedInit<'_> {
             Self::Invalid => write!(f, ""),
         }?;
         write!(f, "))")
+    }
+}
+
+impl std::hash::Hash for TypedInit<'_> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Self::Bit(v) => v.hash(state),
+            Self::Bits(v) => v.hash(state),
+            Self::Code(v) => v.hash(state),
+            Self::Int(v) => v.hash(state),
+            Self::String(v) => v.hash(state),
+            Self::List(v) => v.hash(state),
+            Self::Dag(v) => v.hash(state),
+            Self::Def(v) => v.hash(state),
+            Self::Invalid => {}
+        }
     }
 }
 
@@ -200,20 +221,18 @@ impl<'a> TypedInit<'a> {
     /// The raw object must be valid.
     #[allow(non_upper_case_globals)]
     pub unsafe fn from_raw(init: TableGenTypedInitRef) -> Self {
-        unsafe {
-            let t = tableGenInitRecType(init);
+        use TableGenRecTyKind::*;
 
-            use TableGenRecTyKind::*;
-            match t {
-                TableGenBitRecTyKind => Self::Bit(BitInit::from_raw(init)),
-                TableGenBitsRecTyKind => Self::Bits(BitsInit::from_raw(init)),
-                TableGenDagRecTyKind => TypedInit::Dag(DagInit::from_raw(init)),
-                TableGenIntRecTyKind => TypedInit::Int(IntInit::from_raw(init)),
-                TableGenListRecTyKind => TypedInit::List(ListInit::from_raw(init)),
-                TableGenRecordRecTyKind => Self::Def(DefInit::from_raw(init)),
-                TableGenStringRecTyKind => Self::String(StringInit::from_raw(init)),
-                _ => Self::Invalid,
-            }
+        match unsafe { tableGenInitRecType(init) } {
+            TableGenBitRecTyKind => Self::Bit(unsafe { BitInit::from_raw(init) }),
+            TableGenBitsRecTyKind => Self::Bits(unsafe { BitsInit::from_raw(init) }),
+            TableGenCodeRecTyKind => Self::Code(unsafe { StringInit::from_raw(init) }),
+            TableGenIntRecTyKind => TypedInit::Int(unsafe { IntInit::from_raw(init) }),
+            TableGenStringRecTyKind => Self::String(unsafe { StringInit::from_raw(init) }),
+            TableGenListRecTyKind => TypedInit::List(unsafe { ListInit::from_raw(init) }),
+            TableGenDagRecTyKind => TypedInit::Dag(unsafe { DagInit::from_raw(init) }),
+            TableGenRecordRecTyKind => Self::Def(unsafe { DefInit::from_raw(init) }),
+            _ => Self::Invalid,
         }
     }
 }
@@ -237,6 +256,17 @@ macro_rules! init {
                     raw,
                     _reference: PhantomData,
                 }
+            }
+
+            /// Dumps this init to stderr (for debugging).
+            pub fn dump(self) {
+                unsafe { tableGenInitDump(self.raw) }
+            }
+        }
+
+        impl std::hash::Hash for $name<'_> {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.raw.hash(state);
             }
         }
 
@@ -268,12 +298,58 @@ macro_rules! init {
 
 init!(BitInit);
 
-impl<'a> From<BitInit<'a>> for bool {
-    fn from(value: BitInit<'a>) -> Self {
-        let mut bit = -1;
-        unsafe { tableGenBitInitGetValue(value.raw, &mut bit) };
-        assert!(bit == 0 || bit == 1);
-        bit != 0
+impl<'a> BitInit<'a> {
+    /// Returns true if this bit is a variable reference (e.g., `lda{17}`)
+    /// rather than a literal 0/1.
+    pub fn is_var_bit(self) -> bool {
+        unsafe { tableGenBitInitIsVarBit(self.raw) != 0 }
+    }
+
+    /// If this bit is a variable reference, returns `(field_name, bit_index)`.
+    /// For example, `lda{17}` returns `Some(("lda", 17))`.
+    pub fn as_var_bit(self) -> Option<(&'a str, usize)> {
+        if !self.is_var_bit() {
+            return None;
+        }
+        let name_ref = unsafe { tableGenVarBitInitGetVarName(self.raw) };
+        if name_ref.data.is_null() {
+            return None;
+        }
+        let name = unsafe {
+            std::str::from_utf8(std::slice::from_raw_parts(
+                name_ref.data as *const u8,
+                name_ref.len,
+            ))
+            .ok()?
+        };
+        let bit_num = unsafe { tableGenVarBitInitGetBitNum(self.raw) };
+        Some((name, bit_num))
+    }
+
+    /// If this bit is a literal 0/1, returns its boolean value.
+    /// Returns `None` for variable references.
+    pub fn as_literal(self) -> Option<bool> {
+        if self.is_var_bit() {
+            return None;
+        }
+        let mut bit = -1i8;
+        let ok = unsafe { tableGenBitInitGetValue(self.raw, &mut bit) };
+        if ok > 0 && (bit == 0 || bit == 1) {
+            Some(bit != 0)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> TryFrom<BitInit<'a>> for bool {
+    type Error = TableGenError;
+
+    fn try_from(value: BitInit<'a>) -> Result<Self, Self::Error> {
+        value.as_literal().ok_or(TableGenError::InitConversion {
+            from: "VarBitInit",
+            to: "bool",
+        })
     }
 }
 
@@ -287,10 +363,28 @@ impl<'a> From<BitsInit<'a>> for Vec<BitInit<'a>> {
     }
 }
 
-impl<'a> From<BitsInit<'a>> for Vec<bool> {
+impl<'a> TryFrom<BitsInit<'a>> for Vec<bool> {
+    type Error = TableGenError;
+
+    fn try_from(value: BitsInit<'a>) -> Result<Self, Self::Error> {
+        (0..value.num_bits())
+            .map(|i| {
+                value
+                    .bit(i)
+                    .ok_or(TableGenError::InitConversion {
+                        from: "BitsInit",
+                        to: "bool",
+                    })
+                    .and_then(bool::try_from)
+            })
+            .collect()
+    }
+}
+
+impl<'a> From<BitsInit<'a>> for Vec<Option<bool>> {
     fn from(value: BitsInit<'a>) -> Self {
         (0..value.num_bits())
-            .map(|i| value.bit(i).expect("index within range").into())
+            .map(|i| value.bit(i).expect("index within range").as_literal())
             .collect()
     }
 }
@@ -312,16 +406,32 @@ impl<'a> BitsInit<'a> {
         unsafe { tableGenBitsInitGetNumBits(self.raw, &mut len) };
         len
     }
+
+    /// Returns the known bits as a `u64`.
+    ///
+    /// Variable bits (unresolved references) are treated as zero.
+    #[cfg(feature = "llvm22-0")]
+    pub fn known_bits_to_int(self) -> u64 {
+        unsafe { tableGenBitsInitConvertKnownBitsToInt(self.raw) }
+    }
 }
 
 init!(IntInit);
 
-impl<'a> From<IntInit<'a>> for i64 {
-    fn from(value: IntInit<'a>) -> Self {
+impl<'a> TryFrom<IntInit<'a>> for i64 {
+    type Error = TableGenError;
+
+    fn try_from(value: IntInit<'a>) -> Result<Self, Self::Error> {
         let mut int: i64 = 0;
         let res = unsafe { tableGenIntInitGetValue(value.raw, &mut int) };
-        assert!(res > 0);
-        int
+        if res > 0 {
+            Ok(int)
+        } else {
+            Err(TableGenError::InitConversion {
+                from: "Int",
+                to: "i64",
+            })
+        }
     }
 }
 
@@ -372,11 +482,17 @@ init!(DagInit);
 impl<'a> DagInit<'a> {
     /// Returns an iterator over the arguments of the dag.
     ///
-    /// The iterator yields tuples `(&str, TypedInit)`.
+    /// The iterator yields tuples `(Option<&str>, TypedInit)` where the first element is the
+    /// argument name, or `None` if the argument is unnamed (e.g. positional args like
+    /// `(add r0, r1, r2)`).
+    ///
+    /// Use [`DagInit::num_args`] and [`DagInit::get`] for indexed access if you only need values.
     pub fn args(self) -> DagIter<'a> {
+        let back = self.num_args();
         DagIter {
             dag: self,
             index: 0,
+            back,
         }
     }
 
@@ -396,6 +512,16 @@ impl<'a> DagInit<'a> {
             .and_then(|s| s.try_into().ok())
     }
 
+    /// Returns the argument index for the given name, or `None` if not found.
+    pub fn arg_no(self, name: &str) -> Option<usize> {
+        let result = unsafe { tableGenDagRecordGetArgNo(self.raw, StringRef::from(name).to_raw()) };
+        if result == usize::MAX {
+            None
+        } else {
+            Some(result)
+        }
+    }
+
     /// Returns the argument at the given index.
     pub fn get(self, index: usize) -> Option<TypedInit<'a>> {
         let value = unsafe { tableGenDagRecordGet(self.raw, index) };
@@ -407,26 +533,55 @@ impl<'a> DagInit<'a> {
     }
 }
 
+/// Iterator over the arguments of a [`DagInit`].
 #[derive(Debug, Clone)]
 pub struct DagIter<'a> {
     dag: DagInit<'a>,
     index: usize,
+    back: usize,
 }
 
 impl<'a> Iterator for DagIter<'a> {
-    type Item = (&'a str, TypedInit<'a>);
+    type Item = (Option<&'a str>, TypedInit<'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next = self.dag.get(self.index);
+        if self.index >= self.back {
+            return None;
+        }
+        let next = self.dag.get(self.index)?;
         let name = self.dag.name(self.index);
         self.index += 1;
-        if let (Some(next), Some(name)) = (next, name) {
-            Some((name, next))
-        } else {
-            None
+        Some((name, next))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back.saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
+}
+
+impl<'a> DoubleEndedIterator for DagIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        if self.index >= self.back {
+            return None;
+        }
+        self.back -= 1;
+        match self.dag.get(self.back) {
+            Some(next) => {
+                let name = self.dag.name(self.back);
+                Some((name, next))
+            }
+            None => {
+                self.back += 1;
+                None
+            }
         }
     }
 }
+
+impl ExactSizeIterator for DagIter<'_> {}
+
+impl std::iter::FusedIterator for DagIter<'_> {}
 
 init!(ListInit);
 
@@ -435,9 +590,11 @@ impl<'a> ListInit<'a> {
     ///
     /// The iterator yields values of type [`TypedInit`].
     pub fn iter(self) -> ListIter<'a> {
+        let back = self.len();
         ListIter {
             list: self,
             index: 0,
+            back,
         }
     }
 
@@ -460,18 +617,34 @@ impl<'a> ListInit<'a> {
             None
         }
     }
+
+    /// Returns the element type of this list, or `None` if it cannot be determined.
+    pub fn element_type(self) -> Option<crate::raw::TableGenRecTyKind::Type> {
+        use crate::raw::TableGenRecTyKind::TableGenInvalidRecTyKind;
+        let kind = unsafe { tableGenListInitGetElementType(self.raw) };
+        if kind == TableGenInvalidRecTyKind {
+            None
+        } else {
+            Some(kind)
+        }
+    }
 }
 
+/// Iterator over the elements of a [`ListInit`].
 #[derive(Debug, Clone)]
 pub struct ListIter<'a> {
     list: ListInit<'a>,
     index: usize,
+    back: usize,
 }
 
 impl<'a> Iterator for ListIter<'a> {
     type Item = TypedInit<'a>;
 
     fn next(&mut self) -> Option<TypedInit<'a>> {
+        if self.index >= self.back {
+            return None;
+        }
         let next = unsafe { tableGenListRecordGet(self.list.raw, self.index) };
         self.index += 1;
         if !next.is_null() {
@@ -480,7 +653,33 @@ impl<'a> Iterator for ListIter<'a> {
             None
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back.saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
 }
+
+impl<'a> DoubleEndedIterator for ListIter<'a> {
+    fn next_back(&mut self) -> Option<TypedInit<'a>> {
+        if self.index >= self.back {
+            return None;
+        }
+        self.back -= 1;
+        let next = unsafe { tableGenListRecordGet(self.list.raw, self.back) };
+        if !next.is_null() {
+            Some(unsafe { TypedInit::from_raw(next) })
+        } else {
+            // Restore back so the element is not silently skipped on the next call.
+            self.back += 1;
+            None
+        }
+    }
+}
+
+impl ExactSizeIterator for ListIter<'_> {}
+
+impl std::iter::FusedIterator for ListIter<'_> {}
 
 #[cfg(test)]
 mod tests {
@@ -491,7 +690,7 @@ mod tests {
         ($name:ident, $td_field:expr, $expected:expr) => {
             #[test]
             fn $name() {
-                let res = TableGenParser::new()
+                let rk = TableGenParser::new()
                     .add_source(&format!(
                         "
                     def A {{
@@ -503,8 +702,7 @@ mod tests {
                     .unwrap()
                     .parse()
                     .expect("valid tablegen");
-                let a = res
-                    .record_keeper
+                let a = rk
                     .def("A")
                     .expect("def A exists")
                     .value("a")
@@ -522,10 +720,11 @@ mod tests {
     );
     test_init!(int, "int a = 42;", 42);
     test_init!(string, "string a = \"hi\";", "hi");
+    test_init!(code, "code a = \"hi\";", "hi");
 
     #[test]
     fn dag() {
-        let res = TableGenParser::new()
+        let rk = TableGenParser::new()
             .add_source(
                 "
                 def ins;
@@ -543,8 +742,7 @@ mod tests {
             .unwrap()
             .parse()
             .expect("valid tablegen");
-        let a: DagInit = res
-            .record_keeper
+        let a: DagInit = rk
             .def("A")
             .expect("def A exists")
             .value("args")
@@ -559,20 +757,92 @@ mod tests {
                 name,
                 Record::try_from(init).expect("is record").int_value("i")
             )),
-            Some(("src1", Ok(4)))
+            Some((Some("src1"), Ok(4)))
         );
         assert_eq!(
             args.nth(1).map(|(name, init)| (
                 name,
                 Record::try_from(init).expect("is record").string_value("s")
             )),
-            Some(("src2", Ok("test".into())))
+            Some((Some("src2"), Ok("test".into())))
         );
     }
 
     #[test]
+    fn dag_unnamed_args() {
+        let rk = TableGenParser::new()
+            .add_source(
+                "
+                def add;
+                def X { int i = 1; }
+                def Y { int i = 2; }
+                def A {
+                    dag args = (add X, Y);
+                }
+                ",
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let a: DagInit = rk
+            .def("A")
+            .expect("def A exists")
+            .value("args")
+            .expect("field args exists")
+            .try_into()
+            .expect("is dag init");
+        assert_eq!(a.num_args(), 2);
+        let collected: Vec<_> = a
+            .args()
+            .map(|(name, init)| {
+                (
+                    name,
+                    Record::try_from(init).expect("is record").int_value("i"),
+                )
+            })
+            .collect();
+        assert_eq!(collected, vec![(None, Ok(1)), (None, Ok(2))]);
+    }
+
+    #[test]
+    fn dag_mixed_named_unnamed_args() {
+        let rk = TableGenParser::new()
+            .add_source(
+                "
+                def op;
+                def X { int i = 10; }
+                def Y { int i = 20; }
+                def A {
+                    dag args = (op X:$named, Y);
+                }
+                ",
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let a: DagInit = rk
+            .def("A")
+            .expect("def A exists")
+            .value("args")
+            .expect("field args exists")
+            .try_into()
+            .expect("is dag init");
+        assert_eq!(a.num_args(), 2);
+        let collected: Vec<_> = a
+            .args()
+            .map(|(name, init)| {
+                (
+                    name,
+                    Record::try_from(init).expect("is record").int_value("i"),
+                )
+            })
+            .collect();
+        assert_eq!(collected, vec![(Some("named"), Ok(10)), (None, Ok(20))]);
+    }
+
+    #[test]
     fn list() {
-        let res = TableGenParser::new()
+        let rk = TableGenParser::new()
             .add_source(
                 "
                 def A {
@@ -583,8 +853,7 @@ mod tests {
             .unwrap()
             .parse()
             .expect("valid tablegen");
-        let l: ListInit = res
-            .record_keeper
+        let l: ListInit = rk
             .def("A")
             .expect("def A exists")
             .value("l")
@@ -598,5 +867,175 @@ mod tests {
         assert_eq!(iter.clone().nth(1).unwrap().try_into(), Ok(1));
         assert_eq!(iter.clone().nth(2).unwrap().try_into(), Ok(2));
         assert_eq!(iter.clone().nth(3).unwrap().try_into(), Ok(3));
+    }
+
+    #[test]
+    fn list_double_ended() {
+        let rk = TableGenParser::new()
+            .add_source("def A { list<int> l = [10, 20, 30, 40]; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let l: ListInit = rk.def("A").unwrap().value("l").unwrap().try_into().unwrap();
+        let mut iter = l.iter();
+        assert_eq!(iter.len(), 4);
+        assert_eq!(iter.next().unwrap().try_into(), Ok(10i64));
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next_back().unwrap().try_into(), Ok(40i64));
+        assert_eq!(iter.len(), 2);
+        assert_eq!(iter.next().unwrap().try_into(), Ok(20i64));
+        assert_eq!(iter.next_back().unwrap().try_into(), Ok(30i64));
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn dag_double_ended() {
+        let rk = TableGenParser::new()
+            .add_source(
+                "def op; def A { int i = 1; } def B { int i = 2; } def C { int i = 3; }
+                 def R { dag d = (op A, B, C); }",
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let dag: DagInit = rk.def("R").unwrap().value("d").unwrap().try_into().unwrap();
+        let mut iter = dag.args();
+        assert_eq!(iter.len(), 3);
+        let (_, first) = iter.next().unwrap();
+        assert_eq!(Record::try_from(first).unwrap().int_value("i"), Ok(1));
+        assert_eq!(iter.len(), 2);
+        let (_, last) = iter.next_back().unwrap();
+        assert_eq!(Record::try_from(last).unwrap().int_value("i"), Ok(3));
+        assert_eq!(iter.len(), 1);
+        let (_, mid) = iter.next().unwrap();
+        assert_eq!(Record::try_from(mid).unwrap().int_value("i"), Ok(2));
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn varbit() {
+        // Access the class template before parameter substitution.
+        // bits<4> val = src produces VarBitInit elements: src{0}..src{3}.
+        let rk = TableGenParser::new()
+            .add_source("class Foo<bits<4> src> { bits<4> val = src; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let bits: BitsInit = rk
+            .class("Foo")
+            .expect("class Foo exists")
+            .value("val")
+            .expect("field val exists")
+            .init
+            .as_bits()
+            .expect("is BitsInit");
+        assert_eq!(bits.num_bits(), 4);
+        for i in 0..4 {
+            let bit = bits.bit(i).expect("bit in range");
+            assert!(bit.is_var_bit());
+            assert_eq!(bit.as_var_bit(), Some(("Foo:src", i)));
+            assert_eq!(bit.as_literal(), None);
+        }
+        let optional: Vec<Option<bool>> = bits.into();
+        assert_eq!(optional, vec![None, None, None, None]);
+    }
+
+    #[test]
+    fn vec_bool_from_varbit_bits_returns_err() {
+        // Variable-reference bits (VarBitInit) cannot be converted to bool.
+        // The TryFrom impl must return Err rather than panicking.
+        let rk = TableGenParser::new()
+            .add_source("class Foo<bits<4> src> { bits<4> val = src; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let bits: BitsInit = rk
+            .class("Foo")
+            .expect("class Foo exists")
+            .value("val")
+            .expect("field val exists")
+            .init
+            .as_bits()
+            .expect("is BitsInit");
+        let result = Vec::<bool>::try_from(bits);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn empty_list() {
+        let rk = TableGenParser::new()
+            .add_source("def A { list<int> l = []; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let l: ListInit = rk
+            .def("A")
+            .expect("def A exists")
+            .value("l")
+            .expect("field l exists")
+            .try_into()
+            .expect("is list init");
+        assert_eq!(l.len(), 0);
+        assert!(l.is_empty());
+        assert!(l.iter().next().is_none());
+        // Repeated next() calls on exhausted iterator must not misbehave.
+        let mut iter = l.iter();
+        assert!(iter.next().is_none());
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn literal_bit_methods() {
+        let rk = TableGenParser::new()
+            .add_source("def A { bits<4> a = { 0, 1, 0, 1 }; }")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let bits: BitsInit = rk
+            .def("A")
+            .expect("def A exists")
+            .value("a")
+            .expect("field a exists")
+            .init
+            .as_bits()
+            .expect("is BitsInit");
+        for i in 0..4 {
+            let bit = bits.bit(i).expect("bit in range");
+            assert!(!bit.is_var_bit());
+            assert!(bit.as_var_bit().is_none());
+            assert!(bit.as_literal().is_some());
+        }
+    }
+
+    #[test]
+    fn list_element_type() {
+        use crate::raw::TableGenRecTyKind::{
+            TableGenDagRecTyKind, TableGenIntRecTyKind, TableGenStringRecTyKind,
+        };
+        let rk = TableGenParser::new()
+            .add_source(
+                r#"
+                def op;
+                def A {
+                    list<int> li = [1, 2, 3];
+                    list<string> ls = ["a", "b"];
+                    list<dag> ld = [(op)];
+                }
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let a = rk.def("A").expect("def A exists");
+        let li: ListInit = a.value("li").unwrap().try_into().unwrap();
+        assert_eq!(li.element_type(), Some(TableGenIntRecTyKind));
+        let ls: ListInit = a.value("ls").unwrap().try_into().unwrap();
+        assert_eq!(ls.element_type(), Some(TableGenStringRecTyKind));
+        let ld: ListInit = a.value("ld").unwrap().try_into().unwrap();
+        assert_eq!(ld.element_type(), Some(TableGenDagRecTyKind));
     }
 }

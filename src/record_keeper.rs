@@ -8,28 +8,32 @@
 // option. This file may not be copied, modified, or distributed
 // except according to those terms.
 
-use std::marker::PhantomData;
+use std::{fmt, marker::PhantomData};
 
 #[cfg(any(
     feature = "llvm18-0",
     feature = "llvm19-0",
     feature = "llvm20-0",
-    feature = "llvm21-0"
+    feature = "llvm21-0",
+    feature = "llvm22-0"
 ))]
 use crate::error::TableGenError;
 #[cfg(any(feature = "llvm16-0", feature = "llvm17-0"))]
 use crate::error::{SourceLocation, TableGenError, WithLocation};
 use crate::{
     Error, SourceInfo, TableGenParser,
+    init::TypedInit,
     raw::{
         TableGenRecordKeeperIteratorRef, TableGenRecordKeeperRef, TableGenRecordVectorRef,
         tableGenRecordKeeperFree, tableGenRecordKeeperGetAllDerivedDefinitions,
-        tableGenRecordKeeperGetClass, tableGenRecordKeeperGetDef,
-        tableGenRecordKeeperGetFirstClass, tableGenRecordKeeperGetFirstDef,
-        tableGenRecordKeeperGetNextClass, tableGenRecordKeeperGetNextDef,
-        tableGenRecordKeeperItemGetName, tableGenRecordKeeperItemGetRecord,
-        tableGenRecordKeeperIteratorClone, tableGenRecordKeeperIteratorFree,
-        tableGenRecordVectorFree, tableGenRecordVectorGet,
+        tableGenRecordKeeperGetAllDerivedDefinitionsIfDefined, tableGenRecordKeeperGetClass,
+        tableGenRecordKeeperGetDef, tableGenRecordKeeperGetFirstClass,
+        tableGenRecordKeeperGetFirstDef, tableGenRecordKeeperGetGlobal,
+        tableGenRecordKeeperGetInputFilename, tableGenRecordKeeperGetNextClass,
+        tableGenRecordKeeperGetNextDef, tableGenRecordKeeperItemGetName,
+        tableGenRecordKeeperItemGetRecord, tableGenRecordKeeperIteratorClone,
+        tableGenRecordKeeperIteratorFree, tableGenRecordVectorFree, tableGenRecordVectorGet,
+        tableGenRecordVectorSize,
     },
     record::Record,
     string_ref::StringRef,
@@ -99,8 +103,38 @@ impl<'s> RecordKeeper<'s> {
         }
     }
 
+    /// Returns an iterator over all definitions that derive from the class with
+    /// the given name. Returns an empty iterator if the class is not defined.
+    pub fn all_derived_definitions_if_defined(&self, name: &str) -> RecordIter<'_> {
+        unsafe {
+            RecordIter::from_raw_vector(tableGenRecordKeeperGetAllDerivedDefinitionsIfDefined(
+                self.raw,
+                StringRef::from(name).to_raw(),
+            ))
+        }
+    }
+
     pub fn source_info(&self) -> SourceInfo<'_> {
         SourceInfo(&self.parser)
+    }
+
+    /// Returns the input filename.
+    pub fn input_filename(&self) -> Result<&str, Error> {
+        let raw = unsafe { tableGenRecordKeeperGetInputFilename(self.raw) };
+        unsafe { StringRef::from_raw(raw) }
+            .try_into()
+            .map_err(|e: std::str::Utf8Error| TableGenError::from(e).into())
+    }
+
+    /// Returns the global variable with the given name, if it exists.
+    pub fn global(&self, name: &str) -> Option<TypedInit<'_>> {
+        let ptr =
+            unsafe { tableGenRecordKeeperGetGlobal(self.raw, StringRef::from(name).to_raw()) };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { TypedInit::from_raw(ptr) })
+        }
     }
 }
 
@@ -137,6 +171,7 @@ impl NextRecord for IsDef {
     }
 }
 
+/// Iterator over named records (classes or definitions) in a [`RecordKeeper`].
 #[derive(Debug)]
 pub struct NamedRecordIter<'a, T> {
     raw: TableGenRecordKeeperIteratorRef,
@@ -173,6 +208,12 @@ impl<'a, T: NextRecord> Iterator for NamedRecordIter<'a, T> {
 
 impl<T> Clone for NamedRecordIter<'_, T> {
     fn clone(&self) -> Self {
+        if self.raw.is_null() {
+            return Self {
+                raw: std::ptr::null_mut(),
+                _kind: PhantomData,
+            };
+        }
         unsafe { Self::from_raw(tableGenRecordKeeperIteratorClone(self.raw)) }
     }
 }
@@ -183,17 +224,29 @@ impl<T> Drop for NamedRecordIter<'_, T> {
     }
 }
 
+impl<T: NextRecord> std::iter::FusedIterator for NamedRecordIter<'_, T> {}
+
+/// Iterator over records derived from a given class in a [`RecordKeeper`].
 pub struct RecordIter<'a> {
     raw: TableGenRecordVectorRef,
     index: usize,
+    back: usize,
     _reference: PhantomData<&'a ()>,
+}
+
+impl fmt::Debug for RecordIter<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RecordIter {{ remaining: {} }}", self.back - self.index)
+    }
 }
 
 impl<'a> RecordIter<'a> {
     unsafe fn from_raw_vector(ptr: TableGenRecordVectorRef) -> RecordIter<'a> {
+        let len = unsafe { tableGenRecordVectorSize(ptr) };
         RecordIter {
             raw: ptr,
             index: 0,
+            back: len,
             _reference: PhantomData,
         }
     }
@@ -203,6 +256,9 @@ impl<'a> Iterator for RecordIter<'a> {
     type Item = Record<'a>;
 
     fn next(&mut self) -> Option<Record<'a>> {
+        if self.index >= self.back {
+            return None;
+        }
         let next = unsafe { tableGenRecordVectorGet(self.raw, self.index) };
         self.index += 1;
         if next.is_null() {
@@ -211,7 +267,33 @@ impl<'a> Iterator for RecordIter<'a> {
             unsafe { Some(Record::from_raw(next)) }
         }
     }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let remaining = self.back.saturating_sub(self.index);
+        (remaining, Some(remaining))
+    }
 }
+
+impl<'a> DoubleEndedIterator for RecordIter<'a> {
+    fn next_back(&mut self) -> Option<Record<'a>> {
+        if self.index >= self.back {
+            return None;
+        }
+        self.back -= 1;
+        let next = unsafe { tableGenRecordVectorGet(self.raw, self.back) };
+        if next.is_null() {
+            // Restore back so the element is not silently skipped on the next call.
+            self.back += 1;
+            None
+        } else {
+            unsafe { Some(Record::from_raw(next)) }
+        }
+    }
+}
+
+impl ExactSizeIterator for RecordIter<'_> {}
+
+impl std::iter::FusedIterator for RecordIter<'_> {}
 
 impl Drop for RecordIter<'_> {
     fn drop(&mut self) {
@@ -238,8 +320,7 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         rk.classes()
             .for_each(|i| assert!(i.1.name().unwrap() == i.0.unwrap()));
         rk.defs()
@@ -264,8 +345,7 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         let a = rk.all_derived_definitions("A");
         assert!(a.map(|i| i.name().unwrap().to_string()).eq(["D1", "D2"]));
         let b = rk.all_derived_definitions("B");
@@ -283,9 +363,157 @@ mod test {
             )
             .unwrap()
             .parse()
-            .expect("valid tablegen")
-            .record_keeper;
+            .expect("valid tablegen");
         assert_eq!(rk.class("A").expect("class exists").name().unwrap(), "A");
         assert_eq!(rk.def("D1").expect("def exists").name().unwrap(), "D1");
+    }
+
+    #[test]
+    fn clone_exhausted_named_iter() {
+        let rk = TableGenParser::new()
+            .add_source("class A; class B;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let mut it = rk.classes();
+        while it.next().is_some() {}
+        // Must not segfault when cloning an exhausted iterator.
+        let mut cloned = it.clone();
+        assert!(cloned.next().is_none());
+    }
+
+    #[test]
+    fn empty_classes_and_defs() {
+        let rk = TableGenParser::new()
+            .add_source("// empty")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        assert_eq!(rk.classes().count(), 0);
+        assert_eq!(rk.defs().count(), 0);
+    }
+
+    #[test]
+    fn record_iter_size_hint() {
+        let rk = TableGenParser::new()
+            .add_source(
+                r#"
+                class A;
+                def D1: A;
+                def D2: A;
+                def D3: A;
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let mut iter = rk.all_derived_definitions("A");
+        assert_eq!(iter.size_hint(), (3, Some(3)));
+        assert_eq!(iter.len(), 3);
+        iter.next();
+        assert_eq!(iter.size_hint(), (2, Some(2)));
+        iter.next();
+        assert_eq!(iter.size_hint(), (1, Some(1)));
+        iter.next();
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+        assert!(iter.next().is_none());
+        assert_eq!(iter.size_hint(), (0, Some(0)));
+    }
+
+    #[test]
+    fn add_source_interior_null() {
+        let result = TableGenParser::new().add_source("def A;\0invalid");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn derived_defs_if_defined_empty_results() {
+        let rk = TableGenParser::new()
+            .add_source("class A; class B; def D1: A;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        // B exists but nothing derives from it
+        let b = rk.all_derived_definitions_if_defined("B");
+        assert_eq!(b.count(), 0);
+    }
+
+    #[test]
+    fn named_iter_clone_mid_iteration() {
+        let rk = TableGenParser::new()
+            .add_source("class A; class B; class C;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let mut iter = rk.classes();
+        assert_eq!(iter.next().unwrap().0, Ok("A"));
+        // Clone mid-iteration; both should continue independently
+        let mut cloned = iter.clone();
+        assert_eq!(iter.next().unwrap().0, Ok("B"));
+        assert_eq!(cloned.next().unwrap().0, Ok("B"));
+        assert_eq!(iter.next().unwrap().0, Ok("C"));
+        assert_eq!(cloned.next().unwrap().0, Ok("C"));
+        assert!(iter.next().is_none());
+        assert!(cloned.next().is_none());
+    }
+
+    #[test]
+    fn derived_defs_if_defined() {
+        let rk = TableGenParser::new()
+            .add_source(
+                r#"
+                class A;
+                def D1: A;
+                def D2: A;
+                "#,
+            )
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        // Existing class
+        let a = rk.all_derived_definitions_if_defined("A");
+        assert_eq!(
+            a.map(|r| r.name().unwrap().to_string()).collect::<Vec<_>>(),
+            vec!["D1", "D2"]
+        );
+        // Non-existing class returns empty
+        let b = rk.all_derived_definitions_if_defined("NonExistent");
+        assert_eq!(b.count(), 0);
+    }
+
+    #[test]
+    fn record_iter_double_ended() {
+        let rk = TableGenParser::new()
+            .add_source("class A; def D1: A; def D2: A; def D3: A; def D4: A;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        // Collect from both ends alternately.
+        let mut iter = rk.all_derived_definitions("A");
+        assert_eq!(iter.next().unwrap().name().unwrap(), "D1");
+        assert_eq!(iter.next_back().unwrap().name().unwrap(), "D4");
+        assert_eq!(iter.next().unwrap().name().unwrap(), "D2");
+        assert_eq!(iter.next_back().unwrap().name().unwrap(), "D3");
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
+    }
+
+    #[test]
+    fn record_iter_size_hint_double_ended() {
+        let rk = TableGenParser::new()
+            .add_source("class A; def D1: A; def D2: A; def D3: A;")
+            .unwrap()
+            .parse()
+            .expect("valid tablegen");
+        let mut iter = rk.all_derived_definitions("A");
+        assert_eq!(iter.len(), 3);
+        iter.next();
+        assert_eq!(iter.len(), 2);
+        iter.next_back();
+        assert_eq!(iter.len(), 1);
+        iter.next();
+        assert_eq!(iter.len(), 0);
+        assert!(iter.next().is_none());
+        assert!(iter.next_back().is_none());
     }
 }

@@ -23,8 +23,8 @@
 //!
 //! An installation of LLVM is required to use this crate.
 //! The versions of LLVM currently supported are 16.x.x, 17.x.x, 18.x.x,
-//! 19.x.x, 20.x.x, and 21.x.x. Different LLVM version can be selected using
-//! features flags (e.g., `llvm16-0` or `llvm17-0`).
+//! 19.x.x, 20.x.x, 21.x.x, and 22.x.x. Different LLVM version can be
+//! selected using features flags (e.g., `llvm16-0` or `llvm22-0`).
 //!
 //! The `TABLEGEN_<version>_PREFIX` environment variable can be used to specify
 //! a custom directory of the LLVM installation.
@@ -45,8 +45,7 @@
 //!         def D: A;
 //!         "#,
 //!     )?
-//!     .parse()
-//!     .record_keeper;
+//!     .parse()?;
 //! assert_eq!(keeper.classes().next().unwrap().0, Ok("A"));
 //! assert_eq!(keeper.defs().next().unwrap().0, Ok("D"));
 //! assert_eq!(
@@ -70,8 +69,7 @@
 //!         "{}/include",
 //!         std::env::var("TABLEGEN_210_PREFIX")?
 //!     ))
-//!     .parse()
-//!     .record_keeper;
+//!     .parse()?;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -92,8 +90,7 @@
 //!         "{}/include",
 //!         std::env::var("TABLEGEN_210_PREFIX")?
 //!     ))
-//!     .parse()
-//!     .record_keeper;
+//!     .parse()?;
 //! let i32_def = keeper.def("I32").expect("has I32 def");
 //! assert!(i32_def.subclass_of("I"));
 //! assert_eq!(i32_def.int_value("bitwidth"), Ok(32));
@@ -115,7 +112,7 @@ pub mod record;
 /// TableGen record keeper.
 pub mod record_keeper;
 mod string_ref;
-pub mod util;
+mod util;
 
 /// This module contains raw bindings for TableGen. Note that these bindings are
 /// unstable and can change at any time.
@@ -138,14 +135,12 @@ pub use init::TypedInit;
 pub use record::{Record, RecordValue};
 pub use record_keeper::RecordKeeper;
 
+use diagnostic::{Diagnostic, DiagnosticIter};
 use raw::{
     TableGenParserRef, tableGenAddIncludeDirectory, tableGenAddSource, tableGenAddSourceFile,
-    tableGenFree, tableGenGet, tableGenGetDiagnostics, tableGenGetRecordKeeper, tableGenParse,
+    tableGenFree, tableGenGet, tableGenGetDiagnostics, tableGenParse, tableGenParseWithDiagnostics,
 };
 use string_ref::StringRef;
-
-use crate::diagnostic::Diagnostic;
-use crate::diagnostic::DiagnosticIter;
 
 // TableGen only exposes `TableGenParseFile` in its API.
 // However, this function uses global state and therefore it is not thread safe.
@@ -223,21 +218,42 @@ impl<'s> TableGenParser<'s> {
         SourceInfo(self)
     }
 
-    /// Parses the TableGen source files and returns a [`ParseResult`].
+    /// Parses the TableGen source files and returns a [`RecordKeeper`].
     ///
     /// Due to limitations of TableGen, parsing TableGen is not thread-safe.
     /// In order to provide thread-safety, this method ensures that any
     /// concurrent parse operations are executed sequentially.
-    pub fn parse(self) -> ParseResult<'s> {
+    pub fn parse(self) -> Result<RecordKeeper<'s>, Error> {
         unsafe {
             let guard = TABLEGEN_PARSE_LOCK.lock().unwrap();
+            let keeper = tableGenParse(self.raw);
+            let res = if !keeper.is_null() {
+                Ok(RecordKeeper::from_raw(keeper, self))
+            } else {
+                Err(TableGenError::Parse.into())
+            };
+            drop(guard);
+            res
+        }
+    }
 
-            let result = tableGenParse(self.raw);
+    /// Parses the TableGen source files and returns a [`ParseResult`].
+    ///
+    /// Unlike [`TableGenParser::parse`], this method keeps the partially parsed
+    /// [`RecordKeeper`] and collected diagnostics even when parsing fails.
+    ///
+    /// Due to limitations of TableGen, parsing TableGen is not thread-safe.
+    /// In order to provide thread-safety, this method ensures that any
+    /// concurrent parse operations are executed sequentially.
+    pub fn parse_with_diagnostics(self) -> ParseResult<'s> {
+        unsafe {
+            let guard = TABLEGEN_PARSE_LOCK.lock().unwrap();
+            let mut success = 0;
+            let raw_record_keeper = tableGenParseWithDiagnostics(self.raw, &mut success);
 
             let raw_diagnostics = tableGenGetDiagnostics(self.raw);
             let diagnostics = DiagnosticIter::from_raw_vector(raw_diagnostics).collect::<Vec<_>>();
 
-            let raw_record_keeper = tableGenGetRecordKeeper(self.raw);
             let record_keeper = RecordKeeper::from_raw(raw_record_keeper, self);
 
             drop(guard);
@@ -245,7 +261,7 @@ impl<'s> TableGenParser<'s> {
             ParseResult {
                 record_keeper,
                 diagnostics,
-                success: result,
+                success: success != 0,
             }
         }
     }
@@ -259,36 +275,6 @@ impl Drop for TableGenParser<'_> {
     }
 }
 
-/// Result of parsing TableGen source files.
-#[derive(Debug, PartialEq, Eq)]
-pub struct ParseResult<'s> {
-    /// The record keeper containing all parsed TableGen records.
-    pub record_keeper: RecordKeeper<'s>,
-    /// Diagnostics generated during parsing.
-    pub diagnostics: Vec<Diagnostic<'s>>,
-    /// Whether parsing completed successfully (true) or encountered errors (false).
-    pub success: bool,
-}
-
-#[cfg(test)]
-impl ParseResult<'_> {
-    pub fn expect(self, msg: &str) -> Self {
-        if self.success {
-            self
-        } else {
-            panic!("{msg}");
-        }
-    }
-
-    pub fn expect_err(self, msg: &str) -> Self {
-        if !self.success {
-            self
-        } else {
-            panic!("{msg}");
-        }
-    }
-}
-
 /// Reference to TableGen source file.
 ///
 /// See [`TableGenParser::source_info`](TableGenParser::source_info) and
@@ -296,28 +282,13 @@ impl ParseResult<'_> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SourceInfo<'a>(pub(crate) &'a TableGenParser<'a>);
 
-#[cfg(test)]
-mod tests {
-    use crate::{TableGenParser, error::SourceLoc};
-
-    #[test]
-    fn add_by_file() {
-        let res = TableGenParser::new()
-            .add_source_file("testdata/bar.td")
-            .add_include_directory("testdata")
-            .parse()
-            .expect("valid tablegen");
-
-        let rk = res.record_keeper;
-
-        let foo = rk.class("Foo").expect("class Foo exists");
-        let foo_pos = foo.file_position(&rk).unwrap();
-        assert_eq!(foo_pos.filepath().as_str().unwrap(), "testdata/foo.td");
-        assert_eq!(foo_pos.pos(), 6);
-
-        let bar = rk.class("Bar").expect("class Bar exists");
-        let bar_pos = bar.file_position(&rk).unwrap();
-        assert_eq!(bar_pos.filepath().as_str().unwrap(), "testdata/bar.td");
-        assert_eq!(bar_pos.pos(), 24);
-    }
+/// Result of parsing TableGen source files with diagnostics.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ParseResult<'s> {
+    /// The record keeper containing all parsed TableGen records.
+    pub record_keeper: RecordKeeper<'s>,
+    /// Diagnostics generated during parsing.
+    pub diagnostics: Vec<Diagnostic<'s>>,
+    /// Whether parsing completed successfully.
+    pub success: bool,
 }

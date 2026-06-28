@@ -13,15 +13,16 @@
 #include "Types.h"
 #include <cstring>
 
+using namespace llvm;
 using ctablegen::RecordMap;
 using ctablegen::tableGenFromRecType;
 
-bool ctablegen::TableGenParser::parse() {
-  recordKeeper = new RecordKeeper;
+bool ctablegen::TableGenParser::parseInto(RecordKeeper &recordKeeper,
+                                          SMDiagnosticVector *diagnostics) {
   sourceMgr.setIncludeDirs(includeDirs);
 
   struct DiagHandlerContext {
-    SMDiagnosticVector &diagnostics;
+    SMDiagnosticVector *diagnostics;
   } handlerContext{diagnostics};
 
   for (const auto &file : files) {
@@ -31,19 +32,37 @@ bool ctablegen::TableGenParser::parse() {
     }
   }
 
-  sourceMgr.setDiagHandler(
-      [](const llvm::SMDiagnostic &diag, void *rawHandlerContext) {
-        auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
-        ctx->diagnostics.push_back(
-            std::move(std::make_unique<llvm::SMDiagnostic>(diag)));
-      },
-      &handlerContext);
+  if (diagnostics) {
+    diagnostics->clear();
+    sourceMgr.setDiagHandler(
+        [](const SMDiagnostic &diag, void *rawHandlerContext) {
+          auto *ctx = reinterpret_cast<DiagHandlerContext *>(rawHandlerContext);
+          ctx->diagnostics->push_back(std::make_unique<SMDiagnostic>(diag));
+        },
+        &handlerContext);
+  }
 
-  bool result = TableGenParseFile(sourceMgr, *recordKeeper);
+  bool result = TableGenParseFile(sourceMgr, recordKeeper);
 
-  sourceMgr.setDiagHandler(nullptr);
+  if (diagnostics) {
+    sourceMgr.setDiagHandler(nullptr);
+  }
 
   return !result;
+}
+
+RecordKeeper *ctablegen::TableGenParser::parse() {
+  auto recordKeeper = std::make_unique<RecordKeeper>();
+  if (parseInto(*recordKeeper, nullptr)) {
+    return recordKeeper.release();
+  }
+  return nullptr;
+}
+
+RecordKeeper *ctablegen::TableGenParser::parseWithDiagnostics(bool &success) {
+  auto recordKeeper = std::make_unique<RecordKeeper>();
+  success = parseInto(*recordKeeper, &diagnostics);
+  return recordKeeper.release();
 }
 
 void ctablegen::TableGenParser::addIncludeDirectory(const StringRef include) {
@@ -86,10 +105,17 @@ void tableGenAddIncludeDirectory(TableGenParserRef tg_ref,
       StringRef(include.data, include.len));
 }
 
-bool tableGenParse(TableGenParserRef tg_ref) { return unwrap(tg_ref)->parse(); }
+TableGenRecordKeeperRef tableGenParse(TableGenParserRef tg_ref) {
+  return wrap(unwrap(tg_ref)->parse());
+}
 
-TableGenRecordKeeperRef tableGenGetRecordKeeper(TableGenParserRef tg_ref) {
-  return wrap(unwrap(tg_ref)->getRecordKeeper());
+TableGenRecordKeeperRef tableGenParseWithDiagnostics(TableGenParserRef tg_ref,
+                                                     TableGenBool *success) {
+  bool parseSuccess = false;
+  auto *recordKeeper = unwrap(tg_ref)->parseWithDiagnostics(parseSuccess);
+  if (success)
+    *success = parseSuccess;
+  return wrap(recordKeeper);
 }
 
 // LLVM ListType
@@ -126,6 +152,18 @@ TableGenTypedInitRef tableGenListRecordGet(TableGenTypedInitRef rv_ref,
   return wrap(elem);
 }
 
+TableGenRecTyKind tableGenListInitGetElementType(TableGenTypedInitRef ti) {
+  if (!ti)
+    return TableGenInvalidRecTyKind;
+  auto list = dyn_cast<ListInit>(unwrap(ti));
+  if (!list)
+    return TableGenInvalidRecTyKind;
+  auto *listTy = dyn_cast<ListRecTy>(list->getType());
+  if (!listTy)
+    return TableGenInvalidRecTyKind;
+  return tableGenFromRecType(listTy->getElementType());
+}
+
 // LLVM DagType
 TableGenTypedInitRef tableGenDagRecordGet(TableGenTypedInitRef rv_ref,
                                           size_t index) {
@@ -158,16 +196,25 @@ TableGenStringRef tableGenDagRecordArgName(TableGenTypedInitRef rv_ref,
                                            size_t index) {
   auto dag = dyn_cast<DagInit>(unwrap(rv_ref));
   if (!dag)
-    return TableGenStringRef{nullptr, 0};
+    return TableGenStringRef{.data = nullptr, .len = 0};
   if (index >= dag->getNumArgs())
-    return TableGenStringRef{nullptr, 0};
+    return TableGenStringRef{.data = nullptr, .len = 0};
   auto s = dag->getArgNameStr(index);
-  return TableGenStringRef{s.data(), s.size()};
+  return TableGenStringRef{.data = s.data(), .len = s.size()};
 }
 
 // Memory
-void tableGenBitArrayFree(int8_t bit_array[]) { delete[] bit_array; }
+void tableGenStringFree(const char *str) { delete str; }
 
-void tableGenStringFree(const char *str) { delete[] str; }
+void tableGenStringArrayFree(const char **str_array) { delete str_array; }
 
-void tableGenStringArrayFree(const char **str_array) { delete[] str_array; }
+size_t tableGenDagRecordGetArgNo(TableGenTypedInitRef dag_ref,
+                                 TableGenStringRef name) {
+  auto dag = dyn_cast<DagInit>(unwrap(dag_ref));
+  if (!dag)
+    return (size_t)-1;
+  auto result = dag->getArgNo(StringRef(name.data, name.len));
+  if (!result)
+    return (size_t)-1;
+  return *result;
+}

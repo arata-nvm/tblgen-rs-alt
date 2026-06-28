@@ -7,11 +7,10 @@ use crate::raw::{
     tableGenSMDiagnosticGetColumnNo, tableGenSMDiagnosticGetFilename, tableGenSMDiagnosticGetKind,
     tableGenSMDiagnosticGetLineNo, tableGenSMDiagnosticGetMessage, tableGenSMDiagnosticVectorGet,
 };
-
 use crate::string_ref::StringRef;
 
 /// Iterator over diagnostics collected during TableGen parsing.
-pub struct DiagnosticIter<'a> {
+pub(crate) struct DiagnosticIter<'a> {
     raw: TableGenSMDiagnosticVectorRef,
     index: usize,
     _reference: PhantomData<&'a TableGenSMDiagnosticVectorRef>,
@@ -37,7 +36,7 @@ impl<'a> Iterator for DiagnosticIter<'a> {
         if next.is_null() {
             None
         } else {
-            unsafe { Some(Diagnostic::from_raw(next)) }
+            Some(unsafe { Diagnostic::from_raw(next) })
         }
     }
 }
@@ -99,10 +98,10 @@ impl DiagnosticKind {
     /// Converts a raw diagnostic kind to the enum representation.
     pub(crate) fn from_raw(kind: TableGenDiagKind::Type) -> Self {
         match kind {
-            TableGenDiagKind::DK_ERROR => Self::Error,
-            TableGenDiagKind::DK_WARNING => Self::Warning,
-            TableGenDiagKind::DK_REMARK => Self::Remark,
-            TableGenDiagKind::DK_NOTE => Self::Note,
+            TableGenDiagKind::TABLEGEN_DK_ERROR => Self::Error,
+            TableGenDiagKind::TABLEGEN_DK_WARNING => Self::Warning,
+            TableGenDiagKind::TABLEGEN_DK_REMARK => Self::Remark,
+            TableGenDiagKind::TABLEGEN_DK_NOTE => Self::Note,
             _ => Self::Unknown(kind),
         }
     }
@@ -117,12 +116,11 @@ mod tests {
         let res = TableGenParser::new()
             .add_source("class A; invalid_token; class B;")
             .unwrap()
-            .parse()
-            .expect_err("invalid tablegen");
+            .parse_with_diagnostics();
 
-        let rk = res.record_keeper;
-        assert!(rk.class("A").is_ok());
-        assert!(rk.class("B").is_err());
+        assert!(!res.success);
+        assert!(res.record_keeper.class("A").is_ok());
+        assert!(res.record_keeper.class("B").is_err());
 
         let diags = res.diagnostics;
         assert_eq!(diags.len(), 1);

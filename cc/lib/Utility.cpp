@@ -13,6 +13,8 @@
 #include "Types.h"
 #include "llvm/Support/SourceMgr.h"
 
+using namespace llvm;
+
 namespace ctablegen {
 
 TableGenRecTyKind tableGenFromRecType(const RecTy *rt) {
@@ -57,24 +59,6 @@ TableGenBool tableGenBitInitGetValue(TableGenTypedInitRef ti, int8_t *bit) {
   return true;
 }
 
-int8_t *tableGenBitsInitGetValue(TableGenTypedInitRef ti, size_t *len) {
-  if (!ti)
-    return nullptr;
-  auto bits_init = dyn_cast<BitsInit>(unwrap(ti));
-  if (!bits_init)
-    return nullptr;
-
-  *len = bits_init->getNumBits();
-  auto bits = new int8_t[*len];
-
-  for (size_t i = 0; i < *len; i++) {
-    bits[i] =
-        reinterpret_cast<const BitInit *>(bits_init->getBit(i))->getValue();
-  }
-
-  return bits;
-}
-
 TableGenBool tableGenBitsInitGetNumBits(TableGenTypedInitRef ti, size_t *len) {
   if (!ti)
     return false;
@@ -94,8 +78,18 @@ TableGenTypedInitRef tableGenBitsInitGetBitInit(TableGenTypedInitRef ti,
   if (!bits_init)
     return nullptr;
 
-  return wrap(static_cast<const BitInit *>(bits_init->getBit(index)));
+  // Return the raw Init* -- may be BitInit or VarBitInit.
+  // Caller must use tableGenBitInitIsVarBit() to distinguish.
+  return wrap(
+      const_cast<TypedInit *>(dyn_cast<TypedInit>(bits_init->getBit(index))));
 }
+
+#if LLVM_VERSION_MAJOR >= 22
+uint64_t tableGenBitsInitConvertKnownBitsToInt(TableGenTypedInitRef ti) {
+  auto bits_init = dyn_cast<BitsInit>(unwrap(ti));
+  return bits_init->convertKnownBitsToInt();
+}
+#endif
 
 TableGenBool tableGenIntInitGetValue(TableGenTypedInitRef ti,
                                      int64_t *integer) {
@@ -111,12 +105,12 @@ TableGenBool tableGenIntInitGetValue(TableGenTypedInitRef ti,
 
 TableGenStringRef tableGenStringInitGetValue(TableGenTypedInitRef ti) {
   if (!ti)
-    return TableGenStringRef{nullptr, 0};
+    return TableGenStringRef{.data = nullptr, .len = 0};
   auto str_init = dyn_cast<StringInit>(unwrap(ti));
   if (!str_init)
-    return TableGenStringRef{nullptr, 0};
+    return TableGenStringRef{.data = nullptr, .len = 0};
   auto val = str_init->getValue();
-  return TableGenStringRef{val.data(), val.size()};
+  return TableGenStringRef{.data = val.data(), .len = val.size()};
 }
 
 char *tableGenStringInitGetValueNewString(TableGenTypedInitRef ti) {
@@ -149,13 +143,47 @@ void tableGenInitPrint(TableGenTypedInitRef ti, TableGenStringCallback callback,
   stream << *unwrap(ti);
 }
 
+void tableGenInitDump(TableGenTypedInitRef ti) { unwrap(ti)->dump(); }
+
+// VarBitInit support: exposes LLVM's VarBitInit for variable bit references
+// (e.g., lda{17}) that BitsInit::getBit() may return instead of BitInit.
+
+TableGenBool tableGenBitInitIsVarBit(TableGenTypedInitRef ti) {
+  if (!ti)
+    return false;
+  return isa<VarBitInit>(unwrap(ti));
+}
+
+TableGenStringRef tableGenVarBitInitGetVarName(TableGenTypedInitRef ti) {
+  if (!ti)
+    return TableGenStringRef{.data = nullptr, .len = 0};
+  auto var_bit = dyn_cast<VarBitInit>(unwrap(ti));
+  if (!var_bit)
+    return TableGenStringRef{.data = nullptr, .len = 0};
+  auto var_init = dyn_cast<VarInit>(var_bit->getBitVar());
+  if (!var_init)
+    return TableGenStringRef{.data = nullptr, .len = 0};
+  auto name = var_init->getName();
+  return TableGenStringRef{.data = name.data(), .len = name.size()};
+}
+
+size_t tableGenVarBitInitGetBitNum(TableGenTypedInitRef ti) {
+  if (!ti)
+    return 0;
+  auto var_bit = dyn_cast<VarBitInit>(unwrap(ti));
+  if (!var_bit)
+    return 0;
+  return var_bit->getBitNum();
+}
+
 TableGenBool tableGenPrintError(TableGenParserRef ref,
                                 TableGenSourceLocationRef loc_ref,
                                 TableGenDiagKind dk, TableGenStringRef message,
                                 TableGenStringCallback callback,
                                 void *userData) {
   ctablegen::CallbackOstream stream(callback, userData);
-  ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
+  auto &LocVec = *unwrap(loc_ref);
+  ArrayRef<SMLoc> Loc(LocVec);
 
   SMLoc NullLoc;
   if (Loc.empty())
@@ -179,48 +207,49 @@ TableGenBool tableGenPrintError(TableGenParserRef ref,
 }
 
 TableGenSourceLocationRef tableGenSourceLocationNull() {
-  auto source_loc = SMLoc();
-  return wrap(new ArrayRef(source_loc));
+  return wrap(new std::vector<SMLoc>());
 }
 
 TableGenSourceLocationRef
 tableGenSourceLocationClone(TableGenSourceLocationRef loc_ref) {
-  return wrap(new ArrayRef(*unwrap(loc_ref)));
+  return wrap(new std::vector<SMLoc>(*unwrap(loc_ref)));
 }
 
-TableGenBool tableGenConvertLoc(TableGenParserRef ref,
-                                TableGenSourceLocationRef loc_ref,
-                                TableGenFilePosRef file_pos_ref,
-                                TableGenLocPosition pos) {
-  ArrayRef<SMLoc> Loc = *unwrap(loc_ref);
-  SMLoc DefLoc;
+TableGenBool
+tableGenSourceLocationGetFilePosition(TableGenParserRef ref,
+                                      TableGenSourceLocationRef loc_ref,
+                                      TableGenFilePositionRef file_pos_ref,
+                                      TableGenSourceLocationPosition pos) {
+  ArrayRef<SMLoc> locs(*unwrap(loc_ref));
+  if (locs.empty())
+    return false;
+
+  size_t index;
   switch (pos) {
-  case LOC_FRONT:
-    DefLoc = Loc.front();
+  case TABLEGEN_SOURCE_LOCATION_PRIMARY:
+    index = 0;
     break;
-  case LOC_BACK:
-    DefLoc = Loc.back();
+  case TABLEGEN_SOURCE_LOCATION_INSTANTIATION:
+    index = locs.size() - 1;
     break;
   }
-  if (!DefLoc.isValid())
+
+  SMLoc loc = locs[index];
+  if (!loc.isValid())
     return false;
 
-  auto &SrcMgr = unwrap(ref)->sourceMgr;
-  auto BufferID = SrcMgr.FindBufferContainingLoc(DefLoc);
-  if (!BufferID)
+  auto &sourceMgr = unwrap(ref)->sourceMgr;
+  auto bufferId = sourceMgr.FindBufferContainingLoc(loc);
+  if (!bufferId)
     return false;
-  auto &Buffer = SrcMgr.getBufferInfo(BufferID).Buffer;
 
-  auto FileSpec = Buffer->getBufferIdentifier();
-  auto Filepath = TableGenStringRef{FileSpec.data(), FileSpec.size()};
-
-  const char *Ptr = DefLoc.getPointer();
-  const char *BufStart = Buffer->getBufferStart();
-  unsigned Pos = (unsigned)(Ptr - BufStart);
-
-  auto FilePos = unwrap(file_pos_ref);
-  FilePos->filepath = Filepath;
-  FilePos->pos = Pos;
+  auto &buffer = sourceMgr.getBufferInfo(bufferId).Buffer;
+  auto filename = buffer->getBufferIdentifier();
+  auto *filePosition = unwrap(file_pos_ref);
+  filePosition->filename =
+      TableGenStringRef{.data = filename.data(), .len = filename.size()};
+  filePosition->offset =
+      static_cast<unsigned>(loc.getPointer() - buffer->getBufferStart());
   return true;
 }
 

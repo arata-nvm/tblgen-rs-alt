@@ -17,7 +17,7 @@ extern "C" {
 
 typedef int TableGenBool;
 
-typedef struct TableGenParser *TableGenParserRef;
+typedef struct TableGen *TableGenParserRef;
 typedef struct TableGenRecordKeeper *TableGenRecordKeeperRef;
 
 typedef struct TableGenRecordMap *TableGenRecordMapRef;
@@ -34,8 +34,7 @@ typedef struct TableGenTypedInit *TableGenTypedInitRef;
 typedef struct TableGenDagPair *TableGenDagPairRef;
 
 typedef struct TableGenSourceLocation *TableGenSourceLocationRef;
-
-typedef struct TableGenFilePos *TableGenFilePosRef;
+typedef struct TableGenFilePosition *TableGenFilePositionRef;
 
 typedef struct TableGenSMDiagnostic *TableGenSMDiagnosticRef;
 typedef struct TableGenSMDiagnosticVector *TableGenSMDiagnosticVectorRef;

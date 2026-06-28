@@ -26,37 +26,37 @@
 #include "Types.h"
 #include "llvm/Support/CBindingWrapping.h"
 
-using namespace llvm;
-
 namespace ctablegen {
 
-typedef std::map<std::string, std::unique_ptr<Record>, std::less<>> RecordMap;
-typedef std::vector<const Record *> RecordVector;
-typedef std::vector<std::unique_ptr<SMDiagnostic>> SMDiagnosticVector;
-typedef std::pair<std::string, TypedInit *> DagPair;
+typedef std::map<std::string, std::unique_ptr<llvm::Record>, std::less<>>
+    RecordMap;
+typedef std::vector<const llvm::Record *> RecordVector;
+typedef std::vector<std::unique_ptr<llvm::SMDiagnostic>> SMDiagnosticVector;
+typedef std::pair<std::string, llvm::TypedInit *> DagPair;
 
 class TableGenParser {
 public:
   TableGenParser() {}
   bool addSource(const char *source);
-  void addSourceFile(const StringRef source);
-  void addIncludeDirectory(const StringRef include);
-  bool parse();
-  RecordKeeper *getRecordKeeper() { return recordKeeper; }
+  void addSourceFile(const llvm::StringRef source);
+  void addIncludeDirectory(const llvm::StringRef include);
+  llvm::RecordKeeper *parse();
+  llvm::RecordKeeper *parseWithDiagnostics(bool &success);
   SMDiagnosticVector &getDiagnostics() { return diagnostics; }
 
-  SourceMgr sourceMgr;
+  llvm::SourceMgr sourceMgr;
 
 private:
+  bool parseInto(llvm::RecordKeeper &recordKeeper,
+                 SMDiagnosticVector *diagnostics);
+
   std::vector<std::string> includeDirs;
   std::vector<std::string> files;
-
-  RecordKeeper *recordKeeper = nullptr;
   SMDiagnosticVector diagnostics;
 };
 
 // Utility
-TableGenRecTyKind tableGenFromRecType(const RecTy *rt);
+TableGenRecTyKind tableGenFromRecType(const llvm::RecTy *rt);
 
 /// A simple raw ostream subclass that forwards write_impl calls to the
 /// user-supplied callback together with opaque user-supplied data.
@@ -68,7 +68,7 @@ public:
         opaqueData(opaqueData), pos(0u) {}
 
   void write_impl(const char *ptr, size_t size) override {
-    TableGenStringRef string = TableGenStringRef{ptr, size};
+    TableGenStringRef string = TableGenStringRef{.data = ptr, .len = size};
     callback(string, opaqueData);
     pos += size;
   }
@@ -81,33 +81,39 @@ private:
   uint64_t pos;
 };
 
+struct RecordMapIterator {
+  RecordMap::const_iterator it;
+  RecordMap::const_iterator end;
+};
+
 } // namespace ctablegen
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::TableGenParser,
                                    TableGenParserRef);
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(RecordKeeper, TableGenRecordKeeperRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::RecordKeeper, TableGenRecordKeeperRef);
 
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMap, TableGenRecordMapRef);
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordVector,
                                    TableGenRecordVectorRef);
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<Record>, TableGenRecordArrayRef);
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<RecordVal>,
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::ArrayRef<llvm::Record>,
+                                   TableGenRecordArrayRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::ArrayRef<llvm::RecordVal>,
                                    TableGenRecordValArrayRef);
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(Record, TableGenRecordRef);
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(RecordVal, TableGenRecordValRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::Record, TableGenRecordRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::RecordVal, TableGenRecordValRef);
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TypedInit, TableGenTypedInitRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::TypedInit, TableGenTypedInitRef);
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::DagPair, TableGenDagPairRef);
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMap::const_iterator,
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::RecordMapIterator,
                                    TableGenRecordKeeperIteratorRef);
 
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ArrayRef<SMLoc>, TableGenSourceLocationRef);
-
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenFilePos, TableGenFilePosRef);
-
-DEFINE_SIMPLE_CONVERSION_FUNCTIONS(SMDiagnostic, TableGenSMDiagnosticRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(std::vector<llvm::SMLoc>,
+                                   TableGenSourceLocationRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(TableGenFilePosition,
+                                   TableGenFilePositionRef);
+DEFINE_SIMPLE_CONVERSION_FUNCTIONS(llvm::SMDiagnostic, TableGenSMDiagnosticRef);
 DEFINE_SIMPLE_CONVERSION_FUNCTIONS(ctablegen::SMDiagnosticVector,
                                    TableGenSMDiagnosticVectorRef);
 

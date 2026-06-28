@@ -12,9 +12,11 @@
 #include "TableGen.hpp"
 #include "Types.h"
 
+using namespace llvm;
+
 TableGenStringRef tableGenRecordValGetName(TableGenRecordValRef rv_ref) {
   auto s = unwrap(rv_ref)->getName();
-  return TableGenStringRef{s.data(), s.size()};
+  return TableGenStringRef{.data = s.data(), .len = s.size()};
 }
 
 TableGenTypedInitRef tableGenRecordValGetNameInit(TableGenRecordValRef rv_ref) {
@@ -40,12 +42,6 @@ TableGenBool tableGenRecordValGetValAsBit(TableGenRecordValRef rv_ref,
       wrap(dyn_cast<TypedInit>(unwrap(rv_ref)->getValue())), bit);
 }
 
-int8_t *tableGenRecordValGetValAsBits(TableGenRecordValRef rv_ref,
-                                      size_t *len) {
-  return tableGenBitsInitGetValue(
-      wrap(dyn_cast<TypedInit>(unwrap(rv_ref)->getValue())), len);
-}
-
 TableGenBool tableGenRecordValGetValAsInt(TableGenRecordValRef rv_ref,
                                           int64_t *integer) {
   return tableGenIntInitGetValue(
@@ -69,9 +65,29 @@ void tableGenRecordValDump(TableGenRecordValRef rv_ref) {
 }
 
 TableGenSourceLocationRef tableGenRecordValGetLoc(TableGenRecordValRef rv_ref) {
-  return wrap(new ArrayRef(unwrap(rv_ref)->getLoc()));
+  auto loc = unwrap(rv_ref)->getLoc();
+  return wrap(new std::vector<SMLoc>(1, loc));
+}
+
+size_t tableGenRecordValGetBitsWidth(TableGenRecordValRef rv_ref) {
+  auto *bits_ty = dyn_cast<BitsRecTy>(unwrap(rv_ref)->getType());
+  if (!bits_ty)
+    return 0;
+  return bits_ty->getNumBits();
+}
+
+TableGenRecTyKind
+tableGenRecordValGetListElementType(TableGenRecordValRef rv_ref) {
+  auto *list_ty = dyn_cast<ListRecTy>(unwrap(rv_ref)->getType());
+  if (!list_ty)
+    return TableGenInvalidRecTyKind;
+  return ctablegen::tableGenFromRecType(list_ty->getElementType());
 }
 
 TableGenBool tableGenRecordValIsTemplateArg(TableGenRecordValRef rv_ref) {
   return unwrap(rv_ref)->isTemplateArg();
+}
+
+TableGenBool tableGenRecordValIsNonconcreteOK(TableGenRecordValRef rv_ref) {
+  return unwrap(rv_ref)->isNonconcreteOK();
 }
