@@ -232,6 +232,8 @@ tableGenSourceLocationGetFilePosition(TableGenParserRef ref,
   case TABLEGEN_SOURCE_LOCATION_INSTANTIATION:
     index = locs.size() - 1;
     break;
+  default:
+    return false;
   }
 
   SMLoc loc = locs[index];
